@@ -1,0 +1,44 @@
+html, body { height: 100%; }
+body { margin: 0; }
+
+
+.header-sticky {
+    position: sticky;
+	top: 0;
+	z-index: 1;
+	width: 100%;
+	display: flex;
+	align-items: center;
+}
+
+.header-sticky-rows {
+    flex: 1;
+    align-items: center;
+}
+
+.content-block {
+    padding: 0px 50px;
+}
+
+.breadcrumb-design {
+    margin: 16px 0;
+}
+
+.block-content {
+}
+
+.mt-3 {
+    margin-top: 1.5rem;
+}
+
+.block-content-no-breadcrumb {
+    margin-top: 16px;
+}
+
+.footer-block {
+    text-align: center;
+    background: rgb(240, 243, 250);
+    padding: 16px 50px;
+    font-weight: bold;
+    margin-top: 24px;
+}

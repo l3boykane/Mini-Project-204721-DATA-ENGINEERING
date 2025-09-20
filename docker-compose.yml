@@ -1,0 +1,86 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: landslide-db
+    env_file:
+      - .env
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    volumes:
+      - ./db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "${POSTGRES_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks: [appnet]
+    restart: unless-stopped
+
+  adminer:
+    image: adminer:4
+    container_name: landslide-adminer
+    environment:
+      - ADMINER_DEFAULT_SERVER=db
+    ports:
+      - "${ADMINER_PORT:-8080}:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [appnet]
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: landslide-backend
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - STORAGE_DIR=${STORAGE_DIR}
+      - JWT_SECRET=${JWT_SECRET}
+      - AUTH_COOKIE_NAME=${AUTH_COOKIE_NAME}
+      - AUTH_COOKIE_DOMAIN=${AUTH_COOKIE_DOMAIN}
+      - CORS_ALLOW_ORIGINS=${CORS_ALLOW_ORIGINS}
+      - WATCHFILES_FORCE_POLLING=${WATCHFILES_FORCE_POLLING}
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./backend/app:/app/app
+      - ./backend/storage:${STORAGE_DIR}
+    command: ${BACKEND_COMMAND}
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    networks: [appnet]
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: landslide-frontend
+    env_file:
+      - .env
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    command: ${FRONTEND_COMMAND}
+    environment:
+      - NEXT_PUBLIC_API_BASE=${NEXT_PUBLIC_API_BASE}
+      - CHOKIDAR_USEPOLLING=${CHOKIDAR_USEPOLLING}
+      - WATCHPACK_POLLING=${WATCHPACK_POLLING}
+      - FAST_REFRESH=${FAST_REFRESH}
+    depends_on:
+      - backend
+    ports:
+      - "3000:3000"
+    networks: [appnet]
+    restart: unless-stopped
+
+networks:
+  appnet:

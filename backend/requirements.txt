@@ -1,0 +1,17 @@
+fastapi
+uvicorn[standard]
+SQLAlchemy>=2.0
+psycopg[binary]
+pydantic
+python-multipart
+xarray
+netCDF4
+python-jose[cryptography]
+passlib[bcrypt]
+email-validator
+pandas
+openpyxl
+shapely>=2.0
+pyshp>=2.3
+pyproj>=3.6
+geopandas
