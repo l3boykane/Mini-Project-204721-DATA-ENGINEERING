@@ -19,7 +19,7 @@ from .utils import (
     summarize_table,
     ingest_nc_north_adm2_to_db
 )
-# Base.metadata.create_all(bind=engine)
+Base.metadata.create_all(bind=engine)
 # ---------------- App & CORS ----------------
 app = FastAPI(title="Landslide Ingest API", version="1.0.0")
 
