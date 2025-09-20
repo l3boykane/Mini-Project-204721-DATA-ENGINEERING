@@ -1,0 +1,4 @@
+db-data/
+frontend/.next
+backend/storage/*.nc
+.env
