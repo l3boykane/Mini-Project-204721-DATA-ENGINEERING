@@ -185,7 +185,7 @@ export default function Rain() {
 		setFilterOption({
 			province_id : value,
 			district_id : filterOption.district_id,
-			date_ranger : filterOption.risk_level,
+			risk_level : filterOption.risk_level,
 		})
 		setPage(1);
 	}
@@ -194,7 +194,7 @@ export default function Rain() {
 		setFilterOption({
 			province_id : filterOption.province_id,
 			district_id : value,
-			date_ranger : filterOption.risk_level,
+			risk_level : filterOption.risk_level,
 		})
 		setPage(1);
 	}
