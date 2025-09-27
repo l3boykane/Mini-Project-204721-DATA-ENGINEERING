@@ -2,3 +2,4 @@ db-data/
 frontend/.next
 backend/storage/*.nc
 .env
+.DS_Store

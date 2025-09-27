@@ -1,6 +1,6 @@
 'use client';
 
-import React, {useEffect, Fragment} from 'react';
+import React, {useEffect, Fragment, useState} from 'react';
 import { Layout, Menu, Typography, Button, Row, Col } from 'antd';
 const {Header, Content, Footer} = Layout;
 import { API_BASE } from '../lib/api';
@@ -10,6 +10,7 @@ import Link from 'next/link';
 
 
 export default function Facade({ children }: { children: React.ReactNode }) {
+	const [dataSelected, setDataSelected] = useState([]);
 	const pathname = usePathname();
     const router = useRouter();
 	const itemsMenu = [
@@ -25,6 +26,10 @@ export default function Facade({ children }: { children: React.ReactNode }) {
 			key : 'statistics-landslide',
 			label : 'Statistics landslide',
 		},
+		{ 
+			key : 'province-district',
+			label : 'Province / District',
+		},
 	]
 
 	async function onLogout() {
@@ -36,18 +41,24 @@ export default function Facade({ children }: { children: React.ReactNode }) {
 		const res = await fetch(`${API_BASE}/me`, { credentials: 'include' });
 		if (res.status === 401) {
 			window.location.href = '/login';
+		} else {
+			setDataSelected([pathname.replace('/', '')])
 		}
 	}
 	
     useEffect(() => {
 		if(pathname != '/login') {
 			guard();
+		} else {
 		}
+
 	}, [pathname])
 
-	const onClick = (e) => {
+	const onClick = (e:any) => {
         router.push(e.key);
+		setDataSelected([e.key])
     };
+
 	return (
 		<Fragment>
 			{pathname == '/login' ? (
@@ -64,12 +75,12 @@ export default function Facade({ children }: { children: React.ReactNode }) {
 								</Link>
 							</Col>
 							<Col span={15}>
-								<Row justify={`center`} align={`center`}>
+								<Row justify={`center`}>
 									<Col span={24}>
 										<Menu
 											theme="dark"
 											mode="horizontal"
-											defaultSelectedKeys={['2']}
+											selectedKeys={dataSelected}
 											items={itemsMenu}
 											style={{minWidth: 0 }}
 											onClick={onClick}
@@ -77,7 +88,7 @@ export default function Facade({ children }: { children: React.ReactNode }) {
 									</Col>
 								</Row>
 							</Col>
-							<Col span={3} align={`right`}>
+							<Col span={3} className="text-right">
 								<Button icon={<LogoutOutlined />} onClick={onLogout}>Logout</Button>
 							</Col>
 						</Row>

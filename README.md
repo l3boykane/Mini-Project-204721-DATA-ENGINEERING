@@ -48,21 +48,5 @@ docker compose up -d
 ```bash
 curl -X POST http://localhost:8000/auth/register \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"admin1234@##","display_name":"Admin"}'
+  -d '{"username":"admin","password":"admin1234@##","full_name":"Administrator"}'
 ```
-
-### 3. Login & upload
-1. เข้า http://localhost:3000/login → ใส่ username/password  
-2. หน้า Home สามารถ:  
-   - อัปโหลด `.nc` (NetCDF) → เก็บในตาราง `datasets`  
-   - อัปโหลด `.csv/.xlsx` → เก็บในตาราง `stat_records`  
-   - ดูข้อมูล preview จาก UI  
-
----
-
-## 🛠️ Development workflow
-
-- แก้โค้ด `backend/app/*.py` หรือ `frontend/app/*.tsx` แล้ว save → container reload อัตโนมัติ (เพราะ bind mount + watcher envs)  
-- ถ้าแก้ไข dependencies (`requirements.txt`, `package.json`) → ต้อง `docker compose build` ใหม่  
-
----

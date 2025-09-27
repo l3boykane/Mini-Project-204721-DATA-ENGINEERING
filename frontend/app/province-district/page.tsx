@@ -1,18 +1,13 @@
 'use client';
 import React, { useEffect, useState, Fragment } from 'react';
-import { Button, Card, Upload, UploadProps, message, Table, Row, Col, Breadcrumb, Modal, Spin, Select, Space, Typography, DatePicker } from 'antd';
-import { UploadOutlined, DatabaseOutlined, InboxOutlined} from '@ant-design/icons';
+import { Card, Table, Row, Col, Breadcrumb, Spin, Select, Space, Typography } from 'antd';
+import { DatabaseOutlined} from '@ant-design/icons';
 import { API_BASE, apiForm } from '@/lib/api';
 import type { TableProps } from 'antd';
-const { RangePicker } = DatePicker;
-import dayjs from 'dayjs';
-import customParseFormat from 'dayjs/plugin/customParseFormat';
-const dateFormat = 'YYYY-MM-DD';
 
-export default function Rain() {
-	const [open, setOpen] = useState(false);
+export default function ProvinceDistrict() {
 	const [isLoading, setIsLoading] = useState(false);
-	const [orderField, setOrderField] = useState('date');
+	const [orderField, setOrderField] = useState('province_id');
 	const [orderType, setOrderType] = useState('asc');
 	const [dataSource, setDataSource] = useState<any[]>([]);
 	const [dataProvince, setDataProvince] = useState<any[]>([]);
@@ -20,35 +15,16 @@ export default function Rain() {
 	const [filterOption, setFilterOption] = useState({
 		province_id : 'all',
 		district_id : 'all',
-		date_ranger : null,
 	});
 	const [page, setPage] = useState(1);
   	const [pageSize, setPageSize] = useState(10);
 
-	const showModal = () => {
-		setOpen(true);
-	};
-
-	const hideModal = () => {
-		setOpen(false);
-	};
 
 
-	async function refresh(p=page, ps=pageSize, order_by=orderField, order_type=orderType, province_id=filterOption.province_id, district_id=filterOption.district_id, date_ranger=filterOption.date_ranger, init: RequestInit = {}) {
-		hideModal();
+	async function refresh(p=page, ps=pageSize, order_by=orderField, order_type=orderType, province_id=filterOption.province_id, district_id=filterOption.district_id, init: RequestInit = {}) {
 		try {
 			setIsLoading(true);
-			let date_start = null;
-			let date_end = null;
-			let dateFilter = '';
-			if(date_ranger) {
-				let date_ranger_spit = date_ranger.split(',');
-				date_start = date_ranger_spit[0];
-				date_end = date_ranger_spit[1];
-				dateFilter = `&date_start=${date_start}&date_end=${date_end}`;
-			}
-
-			const res = await fetch(`${API_BASE}/list_rain?page=${p}&page_size=${ps}&order_by=${order_by}&order_type=${order_type}&province_id=${province_id}&district_id=${district_id}${dateFilter}`, { 
+			const res = await fetch(`${API_BASE}/list_province_district?page=${p}&page_size=${ps}&order_by=${order_by}&order_type=${order_type}&province_id=${province_id}&district_id=${district_id}`, { 
 				cache: "no-store",
 				credentials: 'include',
 				headers: { 'Content-Type': 'application/json', ...(init.headers || {}) },
@@ -57,13 +33,9 @@ export default function Rain() {
 
 			setDataSource(await res.json());
 		} catch (e: any) {
-			setTimeout(() => {
-				setIsLoading(false);
-			}, 500);
+			setIsLoading(false);
 		} finally {
-			setTimeout(() => {
-				setIsLoading(false);
-			}, 500);
+			setIsLoading(false);
 		}
 	}
 
@@ -75,7 +47,7 @@ export default function Rain() {
 				setOrderType((sorter.order == 'descend' ? 'desc' : 'asc'))
 			} else {
 				setPage(1);
-				setOrderField('date')
+				setOrderField('province_id')
 				setOrderType('asc')
 			}
 		}
@@ -85,15 +57,6 @@ export default function Rain() {
 	useEffect(() => {
 		refresh();
 	}, [page, pageSize, orderField, orderType, filterOption])
-
-
-	useEffect(() => {
-		if(!open) {
-			setTimeout(() => {
-				setIsLoading(false);
-			}, 500);
-		}
-	}, [open])
 
 	useEffect(() => {
 		async function fetchProvince(init: RequestInit = {}) {
@@ -157,15 +120,12 @@ export default function Rain() {
 		fetchProvince();
 		fetchDistrict();
 
-		
-
 	}, [])
 
 	const handleChangeProvince = (value: { value: string; label: React.ReactNode }) => {
 		setFilterOption({
 			province_id : value,
 			district_id : filterOption.district_id,
-			date_ranger : filterOption.date_ranger,
 		})
 		setPage(1);
 	}
@@ -174,76 +134,25 @@ export default function Rain() {
 		setFilterOption({
 			province_id : filterOption.province_id,
 			district_id : value,
-			date_ranger : filterOption.date_ranger,
 		})
 		setPage(1);
 	}
 
-	const handleChangeDateRange = (dates: [dayjs, dayjs], dateStrings: [string, string]) => {
-		if(dates) {
-			setFilterOption({
-				province_id : filterOption.province_id,
-				district_id : filterOption.district_id,
-				date_ranger : dateStrings[0] + ',' + dateStrings[1],
-			})
-			setPage(1);
-		} else {
-			setFilterOption({
-				province_id : filterOption.province_id,
-				district_id : filterOption.district_id,
-				date_ranger : null,
-			})
-			setPage(1);
-		}
-	}
-
-	const uploadNCProps: UploadProps = {
-		name: 'file',
-		multiple: false,
-		maxCount: 1,
-		accept: '.nc',
-		customRequest: async (options: any) => {
-			const { file, onSuccess, onError } = options;
-			try {
-				const fd = new FormData();
-				fd.append('file', file as File);
-				setIsLoading(true);
-				await apiForm('/upload', fd);
-				message.success('Upload Success');
-				await refresh();
-				onSuccess?.(null, file);
-			} catch (e: any) {
-				message.error(e.message || 'Upload failed');
-				onError?.(e);
-				setIsLoading(false);
-
-			}
-		}
-	};
-
+	
 	return (
 		<Fragment>
 			<Breadcrumb className="breadcrumb-design" separator={`>`}
-				items={[{ title: 'Home', path: '/', }, { title: 'Rain' }]}
+				items={[{ title: 'Home', path: '/', }, { title: 'Province / District' }]}
 			/>
 			<div className="block-content">
 				<Row gutter={[16, 16]}>
-					<Col span={24} className="text-right">
-						<Button type="primary" onClick={showModal}>
-							อัปโหลดข้อมูลฝน (Upload Data Rain)
-						</Button>
-					</Col>
 					<Col span={24}>
 						<Spin spinning={isLoading} size={`large`}>
-							<Card title={<span><DatabaseOutlined /> Rain</span>}>
+							<Card title={<span><DatabaseOutlined /> Province / District</span>}>
 								
 								<Row gutter={[24, 24]}>
 									<Col span={24} align={`right`}>
 										<Space size={`large`}>
-											<Space>
-												<Typography.Text>ช่วงวันที่ (Date range) : </Typography.Text>
-												<RangePicker onChange={handleChangeDateRange}/>
-											</Space>
 
 											<Space>
 												<Typography.Text>จังหวัด (Province) : </Typography.Text>
@@ -279,23 +188,16 @@ export default function Rain() {
 												{ 
 													title: 'No.', 
 													align:'center', 
-													width: 100, 
+													width: 50, 
 													render: (value:string, record:any, index:number) => {
 														return (((dataSource.page - 1) * dataSource.page_size) + (index + 1)).toLocaleString();
 													}
 												},
 												{ 
-													title: 'วันที่ (Date)', 
-													align:'center', 
-													width: 150, 
-													dataIndex: 'date',
-													sortDirections: ['ascend', 'descend'],
-													sorter: true, defaultSortOrder: 'ascend' 
-												},
-												{ 
 													title: 'จังหวัด (Province)', 
 													dataIndex: 'province_name',
 													sortDirections: ['ascend', 'descend'],
+													width: 400,
 													sorter: true,
 													render: (value:string, record:any) => {
 														return record.province_name + ' (' + record.province_name_en + ')'
@@ -305,23 +207,12 @@ export default function Rain() {
 													title: 'อำเภอ (District)', 
 													dataIndex: 'district_name',
 													sortDirections: ['ascend', 'descend'],
-													width: 400, 
 													sorter: true,
+													width: 400,
 													render: (value:string, record:any) => {
 														return record.district_name + ' (' + record.district_name_en + ')'
 													}
 												},
-												{ 
-													title: 'ปริมาณน้ำฝน (Rainfall)', 
-													align:'center', 
-													width: 250, 
-													dataIndex: 'rain_mm_wmean', 
-													sortDirections: ['ascend', 'descend'],
-													sorter: true,
-													render: (value:number) => {
-														return value.toFixed(2)
-													}
-												}
 											]}
 											pagination={{
 												simple:true,
@@ -336,7 +227,7 @@ export default function Rain() {
 													setPage(p);
 													setPageSize(ps);
 												},
-												locale: {items_per_page: "หน้า (Page)"},
+												locale: {items_per_page: "หน้า (Page)"}
 											}}
 											onChange={onChangeTable}
 										/>
@@ -347,23 +238,6 @@ export default function Rain() {
 						</Spin>
 					</Col>
 				</Row>
-
-				<Modal
-					title="อัปโหลดข้อมูลฝน (Upload Data Rain)"
-					open={open}
-					onOk={hideModal}
-					onCancel={hideModal}
-					footer={null}
-				>
-					<Spin spinning={isLoading} size={`large`}>
-						<Upload.Dragger {...uploadNCProps}>
-							<p className="ant-upload-drag-icon">
-								<UploadOutlined />
-							</p>
-							<p className="ant-upload-text">คลิกหรือลากไฟล์ไปยังพื้นที่นี้เพื่ออัปโหลด <br></br> Click or drag file to this area to upload</p>
-						</Upload.Dragger>
-					</Spin>
-				</Modal>
 			</div>
 		</Fragment>
 	);

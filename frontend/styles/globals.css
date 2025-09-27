@@ -42,3 +42,8 @@ body { margin: 0; }
     font-weight: bold;
     margin-top: 24px;
 }
+
+
+.text-right {
+    text-align: right;
+}

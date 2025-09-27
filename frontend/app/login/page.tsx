@@ -1,6 +1,6 @@
 'use client';
 import { Button, Card, Form, Input, Typography, message } from 'antd';
-import { apiJSON } from '../lib/api';
+import { apiJSON } from '@/lib/api';
 
 
 export default function LoginPage() {
