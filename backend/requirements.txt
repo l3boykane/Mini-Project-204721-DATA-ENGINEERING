@@ -6,8 +6,9 @@ pydantic
 python-multipart
 xarray
 netCDF4
-python-jose[cryptography]
-passlib[bcrypt]
+passlib[bcrypt]==1.7.4
+bcrypt<4.0.0
+python-jose[cryptography]==3.3.0
 email-validator
 pandas
 openpyxl
@@ -17,3 +18,4 @@ pyproj>=3.6
 geopandas
 pyogrio
 rtree
+dbfread

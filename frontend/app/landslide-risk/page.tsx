@@ -1,13 +1,15 @@
 'use client';
 import React, { useEffect, useState, Fragment } from 'react';
-import { Card, Table, Row, Col, Breadcrumb, Spin, Select, Space, Typography } from 'antd';
-import { DatabaseOutlined} from '@ant-design/icons';
+import { Button, Card, Upload, UploadProps, message, Table, Row, Col, Breadcrumb, Modal, Spin, Select, Space, Typography } from 'antd';
+import { UploadOutlined, DatabaseOutlined, InboxOutlined} from '@ant-design/icons';
 import { API_BASE, apiForm } from '@/lib/api';
 import type { TableProps } from 'antd';
 
 type FilterOption = {
   province_id: { value: string; label: React.ReactNode } | 'all';
   district_id: { value: string; label: React.ReactNode } | 'all';
+  risk_level: { value: string; label: React.ReactNode } | 'all';
+  
 };
 
 type DataSource = {
@@ -18,11 +20,11 @@ type DataSource = {
 	items: any[]
 };
 
-type DataProvince = {
+type DataProvince = [{
 	province_id: number;
 	province_name: string;
 	province_name_en: string;
-};
+}];
 
 
 type DataDistrict = {
@@ -31,9 +33,10 @@ type DataDistrict = {
 	district_name_en: string;
 };
 
-export default function ProvinceDistrict() {
+export default function Rain() {
+	const [open, setOpen] = useState(false);
 	const [isLoading, setIsLoading] = useState(false);
-	const [orderField, setOrderField] = useState('province_id');
+	const [orderField, setOrderField] = useState('date');
 	const [orderType, setOrderType] = useState('asc');
 	const [dataSource, setDataSource] = useState<DataSource>({
 		page: 1,
@@ -47,16 +50,27 @@ export default function ProvinceDistrict() {
 	const [filterOption, setFilterOption] = useState<FilterOption>({
 		province_id : 'all',
 		district_id : 'all',
+		risk_level : 'all',
 	});
 	const [page, setPage] = useState(1);
   	const [pageSize, setPageSize] = useState(10);
 
+	const showModal = () => {
+		setOpen(true);
+	};
+
+	const hideModal = () => {
+		setOpen(false);
+	};
 
 
-	async function refresh(p=page, ps=pageSize, order_by=orderField, order_type=orderType, province_id=filterOption.province_id, district_id=filterOption.district_id, init: RequestInit = {}) {
+	async function refresh(p=page, ps=pageSize, order_by=orderField, order_type=orderType, province_id=filterOption.province_id, district_id=filterOption.district_id, risk_level=filterOption.risk_level, init: RequestInit = {}) {
+		hideModal();
 		try {
 			setIsLoading(true);
-			const res = await fetch(`${API_BASE}/list_province_district?page=${p}&page_size=${ps}&order_by=${order_by}&order_type=${order_type}&province_id=${province_id}&district_id=${district_id}`, { 
+			
+
+			const res = await fetch(`${API_BASE}/list_risk?page=${p}&page_size=${ps}&order_by=${order_by}&order_type=${order_type}&province_id=${province_id}&district_id=${district_id}&risk_level=${risk_level}`, { 
 				cache: "no-store",
 				credentials: 'include',
 				headers: { 'Content-Type': 'application/json', ...(init.headers || {}) },
@@ -65,9 +79,13 @@ export default function ProvinceDistrict() {
 
 			setDataSource(await res.json());
 		} catch (e: any) {
-			setIsLoading(false);
+			setTimeout(() => {
+				setIsLoading(false);
+			}, 500);
 		} finally {
-			setIsLoading(false);
+			setTimeout(() => {
+				setIsLoading(false);
+			}, 500);
 		}
 	}
 
@@ -79,7 +97,7 @@ export default function ProvinceDistrict() {
 				setOrderType((sorter.order == 'descend' ? 'desc' : 'asc'))
 			} else {
 				setPage(1);
-				setOrderField('province_id')
+				setOrderField('date')
 				setOrderType('asc')
 			}
 		}
@@ -89,6 +107,15 @@ export default function ProvinceDistrict() {
 	useEffect(() => {
 		refresh();
 	}, [page, pageSize, orderField, orderType, filterOption])
+
+
+	useEffect(() => {
+		if(!open) {
+			setTimeout(() => {
+				setIsLoading(false);
+			}, 500);
+		}
+	}, [open])
 
 	useEffect(() => {
 		async function fetchProvince(init: RequestInit = {}) {
@@ -158,6 +185,7 @@ export default function ProvinceDistrict() {
 		setFilterOption({
 			province_id : value,
 			district_id : filterOption.district_id,
+			date_ranger : filterOption.risk_level,
 		})
 		setPage(1);
 	}
@@ -166,25 +194,65 @@ export default function ProvinceDistrict() {
 		setFilterOption({
 			province_id : filterOption.province_id,
 			district_id : value,
+			date_ranger : filterOption.risk_level,
 		})
 		setPage(1);
 	}
 
-	
+	const handleChangeRisk = (value: { value: string; label: React.ReactNode }) => {
+		setFilterOption({
+			province_id : filterOption.province_id,
+			district_id : filterOption.district_id,
+			risk_level : value,
+		})
+		setPage(1);
+	}
+
+
+	const uploadProps: UploadProps = {
+		name: 'file',
+		multiple: false,
+		maxCount: 1,
+		accept: '.dbf',
+		customRequest: async (options: any) => {
+			const { file, onSuccess, onError } = options;
+			try {
+				const fd = new FormData();
+				fd.append('file', file as File);
+				setIsLoading(true);
+				await apiForm('/upload_dbf', fd);
+				message.success('Upload Success');
+				await refresh();
+				onSuccess?.(null, file);
+			} catch (e: any) {
+				message.error(e.message || 'Upload failed');
+				onError?.(e);
+				setIsLoading(false);
+
+			}
+		}
+	};
+
 	return (
 		<Fragment>
 			<Breadcrumb className="breadcrumb-design" separator={`>`}
-				items={[{ title: 'Home', path: '/', }, { title: 'Province / District' }]}
+				items={[{ title: 'Home', path: '/', }, { title: 'Landslide risk area' }]}
 			/>
 			<div className="block-content">
 				<Row gutter={[16, 16]}>
+					<Col span={24} className="text-right">
+						<Button type="primary" onClick={showModal}>
+							อัปโหลดข้อมูลพื้นที่เสี่ยงดินถล่ม (Upload Data Landslide risk area)
+						</Button>
+					</Col>
 					<Col span={24}>
 						<Spin spinning={isLoading} size={`large`}>
-							<Card title={<span><DatabaseOutlined /> Province / District</span>}>
+							<Card title={<span><DatabaseOutlined /> Landslide risk area</span>}>
 								
 								<Row gutter={[24, 24]}>
 									<Col span={24} className="text-right">
 										<Space size={`large`}>
+											
 
 											<Space>
 												<Typography.Text>จังหวัด (Province) : </Typography.Text>
@@ -205,8 +273,37 @@ export default function ProvinceDistrict() {
 													filterOption={(input:any, option:any) => (option?.label?.toLowerCase() ?? '').includes(input?.toLowerCase())}
 													defaultValue={{ value: 'all', label: 'ทั้งหมด (All)' }}
 													options={dataDistrict}
-													style={{ width: 350, textAlign: `left` }}
+													style={{ width: 300, textAlign: `left` }}
 													onChange={handleChangeDistrict}
+												/>
+											</Space>
+
+											<Space>
+												<Typography.Text>ระดับความเสี่ยง (Risk level)</Typography.Text>
+												<Select
+													showSearch
+													filterOption={(input:any, option:any) => (option?.label?.toLowerCase() ?? '').includes(input?.toLowerCase())}
+													defaultValue={{ value: 'all', label: 'ทั้งหมด (All)' }}
+													options={[
+														{
+															value: "all",
+															label: "ทั้งหมด (All)",
+														},
+														{
+															value : 1,
+															label : 'ความเสี่ยงต่ำ (Low risk)'
+														},
+														{
+															value : 2,
+															label : 'ความเสี่ยงปานกลาง (Medium risk)'
+														},
+														{
+															value : 3,
+															label : 'ความเสี่ยงสูง (High risk)'
+														}
+													]}
+													style={{ width: 300, textAlign: `left` }}
+													onChange={handleChangeRisk}
 												/>
 											</Space>
 											
@@ -220,17 +317,18 @@ export default function ProvinceDistrict() {
 												{ 
 													title: 'No.', 
 													align:'center', 
-													width: 50, 
+													width: 100, 
 													render: (value:string, record:any, index:number) => {
 														return (((dataSource.page - 1) * dataSource.page_size) + (index + 1)).toLocaleString();
 													}
 												},
+												
 												{ 
 													title: 'จังหวัด (Province)', 
 													dataIndex: 'province_name',
 													sortDirections: ['ascend', 'descend'],
-													width: 400,
 													sorter: true,
+													width: 400, 
 													render: (value:string, record:any) => {
 														return record.province_name + ' (' + record.province_name_en + ')'
 													} 
@@ -239,12 +337,31 @@ export default function ProvinceDistrict() {
 													title: 'อำเภอ (District)', 
 													dataIndex: 'district_name',
 													sortDirections: ['ascend', 'descend'],
+													width: 400, 
 													sorter: true,
-													width: 400,
 													render: (value:string, record:any) => {
 														return record.district_name + ' (' + record.district_name_en + ')'
 													}
 												},
+												{ 
+													title: 'ระดับความเสี่ยง (Risk level)', 
+													align:'center', 
+													width: 250, 
+													dataIndex: 'risk_level', 
+													sortDirections: ['ascend', 'descend'],
+													sorter: true,
+													render: (value:number) => {
+														if(value == 1) {
+															return 'ความเสี่ยงต่ำ (Low risk)'
+														} else if(value == 2) {
+															return 'ความเสี่ยงปานกลาง (Medium risk)'
+
+														} else {
+															return 'ความเสี่ยงสูง (High risk)'
+
+														}
+													}
+												}
 											]}
 											pagination={{
 												simple:true,
@@ -259,7 +376,7 @@ export default function ProvinceDistrict() {
 													setPage(p);
 													setPageSize(ps);
 												},
-												locale: {items_per_page: "หน้า (Page)"}
+												locale: {items_per_page: "หน้า (Page)"},
 											}}
 											onChange={onChangeTable}
 										/>
@@ -270,6 +387,25 @@ export default function ProvinceDistrict() {
 						</Spin>
 					</Col>
 				</Row>
+
+				<Modal
+					title="อัปโหลดข้อมูลพื้นที่เสี่ยงดินถล่ม (Upload Data Landslide risk area)"
+					open={open}
+					onOk={hideModal}
+					onCancel={hideModal}
+					footer={null}
+					width={800}
+					destroyOnHidden={true}
+				>
+					<Spin spinning={isLoading} size={`large`}>
+						<Upload.Dragger {...uploadProps}>
+							<p className="ant-upload-drag-icon">
+								<UploadOutlined />
+							</p>
+							<p className="ant-upload-text">คลิกหรือลากไฟล์ไปยังพื้นที่นี้เพื่ออัปโหลด <br></br> Click or drag file to this area to upload</p>
+						</Upload.Dragger>
+					</Spin>
+				</Modal>
 			</div>
 		</Fragment>
 	);

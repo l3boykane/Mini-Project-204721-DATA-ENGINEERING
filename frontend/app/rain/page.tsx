@@ -5,19 +5,50 @@ import { UploadOutlined, DatabaseOutlined, InboxOutlined} from '@ant-design/icon
 import { API_BASE, apiForm } from '@/lib/api';
 import type { TableProps } from 'antd';
 const { RangePicker } = DatePicker;
-import dayjs from 'dayjs';
-import customParseFormat from 'dayjs/plugin/customParseFormat';
-const dateFormat = 'YYYY-MM-DD';
+import type { Dayjs } from 'dayjs';
+
+type FilterOption = {
+  province_id: { value: string; label: React.ReactNode } | 'all';
+  district_id: { value: string; label: React.ReactNode } | 'all';
+  date_ranger: any;
+};
+
+type DataSource = {
+	page: number;
+	page_size: number;
+	total: number;
+	all_page: number;
+	items: any[]
+};
+
+type DataProvince = [{
+	province_id: number;
+	province_name: string;
+	province_name_en: string;
+}];
+
+
+type DataDistrict = {
+	district_id: number;
+	district_name: string;
+	district_name_en: string;
+};
 
 export default function Rain() {
 	const [open, setOpen] = useState(false);
 	const [isLoading, setIsLoading] = useState(false);
 	const [orderField, setOrderField] = useState('date');
 	const [orderType, setOrderType] = useState('asc');
-	const [dataSource, setDataSource] = useState<any[]>([]);
-	const [dataProvince, setDataProvince] = useState<any[]>([]);
-	const [dataDistrict, setDataDistrict] = useState<any[]>([]);
-	const [filterOption, setFilterOption] = useState({
+	const [dataSource, setDataSource] = useState<DataSource>({
+		page: 1,
+		page_size: 10,
+		total: 0,
+		all_page: 0,
+		items: [],
+	});
+	const [dataProvince, setDataProvince] = useState<DataProvince[]>([]);
+	const [dataDistrict, setDataDistrict] = useState<DataDistrict[]>([]);
+	const [filterOption, setFilterOption] = useState<FilterOption>({
 		province_id : 'all',
 		district_id : 'all',
 		date_ranger : null,
@@ -67,7 +98,7 @@ export default function Rain() {
 		}
 	}
 
-	const onChangeTable: TableProps<DataType>['onChange'] = (pagination, filters, sorter:any, extra) => {
+	const onChangeTable: TableProps<any>['onChange'] = (pagination, filters, sorter:any, extra) => {
 		if(extra.action == 'sort') {
 			if(typeof sorter.order !== 'undefined') {
 				setPage(1);
@@ -179,7 +210,7 @@ export default function Rain() {
 		setPage(1);
 	}
 
-	const handleChangeDateRange = (dates: [dayjs, dayjs], dateStrings: [string, string]) => {
+	const handleChangeDateRange = (dates: [Dayjs, Dayjs], dateStrings: [string, string]) => {
 		if(dates) {
 			setFilterOption({
 				province_id : filterOption.province_id,
@@ -238,7 +269,7 @@ export default function Rain() {
 							<Card title={<span><DatabaseOutlined /> Rain</span>}>
 								
 								<Row gutter={[24, 24]}>
-									<Col span={24} align={`right`}>
+									<Col span={24} className="text-right">
 										<Space size={`large`}>
 											<Space>
 												<Typography.Text>ช่วงวันที่ (Date range) : </Typography.Text>
@@ -249,7 +280,7 @@ export default function Rain() {
 												<Typography.Text>จังหวัด (Province) : </Typography.Text>
 												<Select
 													showSearch
-													filterOption={(input, option) => (option?.label?.toLowerCase() ?? '').includes(input?.toLowerCase())}
+													filterOption={(input:any, option:any) => (option?.label?.toLowerCase() ?? '').includes(input?.toLowerCase())}
 													defaultValue={{ value: 'all', label: 'ทั้งหมด (All)' }}
 													options={dataProvince}
 													style={{ width: 250, textAlign: `left` }}
@@ -261,7 +292,7 @@ export default function Rain() {
 												<Typography.Text>อำเภอ (District) : </Typography.Text>
 												<Select
 													showSearch
-													filterOption={(input, option) => (option?.label?.toLowerCase() ?? '').includes(input?.toLowerCase())}
+													filterOption={(input:any, option:any) => (option?.label?.toLowerCase() ?? '').includes(input?.toLowerCase())}
 													defaultValue={{ value: 'all', label: 'ทั้งหมด (All)' }}
 													options={dataDistrict}
 													style={{ width: 350, textAlign: `left` }}
@@ -325,9 +356,9 @@ export default function Rain() {
 											]}
 											pagination={{
 												simple:true,
-												current: parseInt(dataSource?.page),
-												pageSize: parseInt(dataSource?.page_size),
-												total: parseInt(dataSource?.total),
+												current: dataSource?.page ?? 1,
+												pageSize: dataSource?.page_size ?? 10,
+												total: dataSource?.total ?? 0,
 												showSizeChanger: true,
 												showTotal: (total:number) => {
 													return `จำนวนทั้งหมด (Total) ${total.toLocaleString()} รายการ (Items)`
@@ -354,6 +385,8 @@ export default function Rain() {
 					onOk={hideModal}
 					onCancel={hideModal}
 					footer={null}
+					width={800}
+					destroyOnHidden={true}
 				>
 					<Spin spinning={isLoading} size={`large`}>
 						<Upload.Dragger {...uploadNCProps}>

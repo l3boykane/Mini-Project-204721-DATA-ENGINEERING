@@ -1,6 +1,6 @@
 # backend/app/main.py
 from __future__ import annotations
-import os, uuid, logging
+import os, uuid, logging, shutil, zipfile
 from typing import Optional
 
 from fastapi import FastAPI, UploadFile, File, Form, Depends, HTTPException, Response, Query
@@ -9,8 +9,8 @@ from sqlalchemy.orm import Session, aliased
 from datetime import date
 from sqlalchemy import select, func, asc, desc, and_, or_
 from .database import Base, engine, get_db
-from .models import User, UploadRainPoint, RainPoint, Province, District
-from .schemas import UserOut, RegisterIn, LoginIn, ListPaginationOut, ListProvinceDistrictPaginationOut, RainPointOut, ProvinceOut, DistrictOut, ProvinceListOut, DistrictListOut, ProvinceDistrictPointOut
+from .models import User, UploadRainPoint, RainPoint, Province, District, UploadRisk, RiskPoint
+from .schemas import UserOut, RegisterIn, LoginIn, ListPaginationOut, ListProvinceDistrictPaginationOut, RainPointOut, ProvinceOut, DistrictOut, ProvinceListOut, DistrictListOut, ProvinceDistrictPointOut, RiskPointOut, ListRiskPaginationOut
 from .auth import (
     hash_password, verify_password,
     create_access_token, set_auth_cookie, clear_auth_cookie,
@@ -18,7 +18,8 @@ from .auth import (
 )
 from .utils import (
     init_data,
-    ingest_nc_north_adm2_to_db
+    ingest_nc_north_adm2_to_db,
+    ingest_dbf_to_db
 )
 Base.metadata.create_all(bind=engine)
 # ---------------- App & CORS ----------------
@@ -397,3 +398,135 @@ async def list_province_district(
     )
 
 
+@app.post("/upload_dbf")
+async def upload_dbf(
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    
+    if not (file.filename.endswith(".dbf")):
+        raise HTTPException(400, "Please upload a .dbf file")
+
+    safe_name = f"{uuid.uuid4().hex}_RAW_{os.path.basename(file.filename)}"
+    raw_path = os.path.join(STORAGE_DIR, safe_name)
+
+    written = 0
+    with open(raw_path, "wb") as f:
+        while True:
+            chunk = await file.read(1024 * 1024)
+            if not chunk: break
+            written += len(chunk)
+            if written > MAX_BYTES:
+                f.close()
+                try: os.remove(raw_path)
+                except: pass
+                raise HTTPException(413, f"File too large (> {MAX_UPLOAD_MB} MB)")
+            f.write(chunk)
+
+    row = UploadRisk(
+        filename=file.filename,
+        storage_path=raw_path,
+        size_bytes=written,
+        content_type=file.content_type,
+        owner_id=user.user_id,
+    )
+    db.add(row); db.commit(); db.refresh(row)
+    try:
+        total = ingest_dbf_to_db(
+            engine=db,
+            upload_risk_id=row.upload_risk_id,
+            raw_path=raw_path,
+        )
+    except Exception as e:
+        logger.exception("ingest failed: %s", e)
+        raise HTTPException(400, f"Ingest failed: {e}")
+
+    os.remove(raw_path)
+    return {"rows_inserted": total}
+
+@app.get("/list_risk", response_model=ListRiskPaginationOut)
+async def list_risk(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(10, ge=1, le=200),
+    order_by: str = Query("date", description="field ที่จะใช้ sort"),
+    order_type: str = Query("asc", regex="^(asc|desc)$", description="ทิศทาง asc/desc"),
+    province_id: Optional[str] = Query('all', description='เช่น "all" หรือ "50" หรือ "50,51"'),
+    district_id: Optional[str] = Query('all', description='เช่น "all" หรือ "12"'),
+    risk_level: Optional[str] = Query('all', description='เช่น "all" หรือ "12"'),
+    db: Session = Depends(get_db),
+):
+    
+    conds = []
+    if province_id != 'all' :
+        conds.append(RiskPoint.province_id == int(province_id))
+
+    if district_id != 'all' :
+        conds.append(RiskPoint.district_id == int(district_id))
+
+    if risk_level != 'all' :
+        conds.append(RiskPoint.risk_level == int(risk_level))
+
+
+    count_stmt = select(func.count(RiskPoint.risk_id)).select_from(RiskPoint)
+    if conds:
+        count_stmt = count_stmt.where(and_(*conds))
+    total = db.execute(count_stmt).scalar_one()
+    all_page = max((total + page_size - 1) // page_size, 1)
+    page = min(page, all_page)
+
+    P = aliased(Province)
+    D = aliased(District)
+
+    sortable_fields = {
+        "risk_level": RiskPoint.risk_level,
+        "province_name": P.province_name,
+        "district_name": D.district_name,
+    }
+
+    column = sortable_fields.get(order_by, D.province_id)
+    direction = asc if order_type.lower() == "asc" else desc
+    stmt = (
+        select(
+            RiskPoint.risk_id,
+            RiskPoint.risk_level,
+            RiskPoint.province_id,
+            RiskPoint.district_id,
+            P.province_name.label("province_name"),
+            P.province_name_en.label("province_name_en"),
+            D.district_name.label("district_name"),
+            D.district_name_en.label("district_name_en"),
+        )
+        .join(P, P.province_id == RiskPoint.province_id, isouter=True)
+        .join(D, D.district_id == RiskPoint.district_id, isouter=True)
+        .order_by(direction(column))
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )
+
+    if conds:
+        stmt = stmt.where(and_(*conds))
+
+    rows = db.execute(stmt).all()
+
+    items = [
+        RiskPointOut(
+            id=r.risk_id,
+            risk_level=r.risk_level,
+            province_id=r.province_id,
+            district_id=r.district_id,
+            province_name=r.province_name,
+            province_name_en=r.province_name_en,
+            district_name=r.district_name,
+            district_name_en=r.district_name,
+        )
+        for r in rows
+    ]
+
+    return ListRiskPaginationOut(
+        page=page,
+        page_size=page_size,
+        total=total,
+        all_page=all_page,
+        items=items,
+    )

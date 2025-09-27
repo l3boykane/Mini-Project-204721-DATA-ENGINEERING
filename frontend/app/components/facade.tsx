@@ -19,13 +19,13 @@ export default function Facade({ children }: { children: React.ReactNode }) {
 			label : 'Rain',
 		},
 		{ 
-			key : 'landslide',
+			key : 'landslide-risk',
 			label : 'Landslide risk area',
 		},
-		{ 
-			key : 'statistics-landslide',
-			label : 'Statistics landslide',
-		},
+		// { 
+		// 	key : 'statistics-landslide',
+		// 	label : 'Statistics landslide',
+		// },
 		{ 
 			key : 'province-district',
 			label : 'Province / District',

@@ -53,6 +53,27 @@ class RainPoint(Base):
     rainfall_mm       = Column(Float, nullable=True)
     district          = relationship("District", backref=backref("districts", cascade="all, delete-orphan"), passive_deletes=True)
     province          = relationship("Province", backref=backref("province", cascade="all, delete-orphan"), passive_deletes=True)
+	
+class UploadRisk(Base):
+    __tablename__ = "upload_risk"
+    upload_risk_id     = Column(Integer, primary_key=True, index=True)
+    filename      = Column(String, nullable=False)
+    storage_path  = Column(String, nullable=False)
+    size_bytes    = Column(BigInteger, nullable=True)
+    content_type  = Column(String, nullable=True)
+    time_create   = Column(DateTime(timezone=True), server_default=func.now())
+    owner_id      = Column(Integer, ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False)
+    owner         = relationship("User", backref="upload_risk")
+
+class RiskPoint(Base):
+    __tablename__     = "risk_points"
+    risk_id           = Column(BigInteger, primary_key=True, index=True)
+    upload_risk_id    = Column(Integer, ForeignKey("upload_risk.upload_risk_id", ondelete="CASCADE"), nullable=False, index=True)
+    province_id       = Column(Integer, ForeignKey("province.province_id", ondelete="CASCADE"), nullable=False, index=True)    
+    district_id       = Column(Integer, ForeignKey("district.district_id", ondelete="CASCADE"), nullable=False, index=True)
+    risk_level        = Column(Integer, nullable=True)
+    district          = relationship("District", backref=backref("risk_points", cascade="all, delete-orphan"), passive_deletes=True)
+    province          = relationship("Province", backref=backref("risk_points", cascade="all, delete-orphan"), passive_deletes=True)
 
 # ดัชนีที่ช่วย query
 Index("ix_rain_points_date", RainPoint.date)

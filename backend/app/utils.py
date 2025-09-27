@@ -1,10 +1,11 @@
 from __future__ import annotations
-import os, logging
+import os, logging, re
 import numpy as np
 import xarray as xr
 import pandas as pd
 import unicodedata
 import geopandas as gpd
+from dbfread import DBF
 
 from .models import Province, District
 
@@ -25,10 +26,10 @@ def clean_text(x):
 
 
 def ingest_nc_north_adm2_to_db(
-    engine,                # <-- นี่คือ SQLAlchemy Session ของคุณ (ตามที่ใช้อยู่)
+    engine,
     upload_id: int,
     nc_path: str,
-    adm2_shp_path: str,    # path ไปยัง GADM level 2 (.shp)
+    adm2_shp_path: str,
 ) -> int:
     """
     เขียนลงตารางเดิม 'rain_points' แบบ 'หนึ่งแถวต่ออำเภอต่อวัน'
@@ -228,3 +229,215 @@ def init_data (engine, shp_path: str):
 
         if is_engine:
             engine.commit()
+
+def class_to_num(x):
+    text_to_num = {
+        "ต่ำ": 1, "ต่ำมาก": 1, "low": 1, "very low": 1,
+        "ปานกลาง": 2, "กลาง": 2, "medium": 2,
+        "สูง": 3, "สูงมาก": 3, "high": 3, "very high": 3
+    }
+    # ถ้าเป็นเลขอยู่แล้ว
+    try:
+        val = float(x)
+        if 0 <= val <= 1:
+            if val < 1/3: return 1
+            elif val < 2/3: return 2
+            else: return 3
+        val = int(round(val))
+        return max(1, min(3, val))
+    except Exception:
+        pass
+    # ถ้าเป็นข้อความ
+    s = str(x).strip().lower()
+    return text_to_num.get(s, None)
+
+def normalize_th(s: str) -> str:
+    """ตัดช่องว่างหัว-ท้าย ยุบช่องว่างซ้ำ เป็นคีย์จับคู่แบบเรียบง่าย"""
+    if s is None:
+        return ""
+    s = str(s).strip()
+    s = re.sub(r"\s+", " ", s)
+    s = s.replace("จ.", "").replace("อ.", "")
+
+    return s
+
+def ingest_dbf_to_db(
+    engine,
+    upload_risk_id: int,
+    raw_path: str,
+) -> int:
+    
+    table = DBF(raw_path, load=True, encoding="tis-620")
+    df_dbf = pd.DataFrame(iter(table))
+    df_dbf["amphoe_t"] = df_dbf["amphoe_t"].astype(str).str.strip()
+
+    rows = engine.query(
+        Province.province_id, Province.province_name, Province.province_name_en
+    ).all()
+    provinces_df = pd.DataFrame(rows, columns=["province_id","province_name","province_name_en"])
+
+    rows = engine.query(
+        District.district_id, District.province_id, District.district_name, District.district_name_en
+    ).all()
+    districts_df = pd.DataFrame(rows, columns=["district_id","province_id","district_name","district_name_en"])
+
+    provinces_df["key"] = provinces_df["province_name"].map(clean_text)
+    districts_df["key"] = districts_df["district_name"].map(clean_text)
+    
+    required_cols = {"amphoe_t", "prov_nam_t", "class"}
+    missing = required_cols - set(map(str.lower, df_dbf.columns))
+    if missing:
+        print("⚠️ columns ใน DBF:", list(df_dbf.columns))
+        raise KeyError(f"ไม่พบคอลัมน์สำคัญใน DBF (คาดว่า amphoe_t, prov_nam_t, class)")
+
+    df_dbf = df_dbf.rename(columns={col: col.lower() for col in df_dbf.columns})
+
+    df_dbf["amphoe_t"]   = df_dbf["amphoe_t"].astype(str).map(normalize_th)
+    df_dbf["prov_nam_t"] = df_dbf["prov_nam_t"].astype(str).map(normalize_th)
+    df_dbf["class_num"]  = df_dbf["class"].apply(class_to_num)
+
+
+    # รายการ class ที่ map ไม่ได้ (ถ้ามี)
+    unknown = df_dbf[df_dbf["class_num"].isna()]["class"].drop_duplicates()
+    if len(unknown) > 0:
+        print("⚠️ พบ class ที่ยัง map ไม่ได้:", unknown.to_list())
+
+    # =========================
+    # 3) สรุป risk สูงสุดต่อ (จังหวัด, อำเภอ)
+    # =========================
+
+    risk_by_amp = (
+        df_dbf.dropna(subset=["class_num"])
+            .groupby(["prov_nam_t", "amphoe_t"], as_index=False)["class_num"]
+            .mean()
+            .rename(columns={"class_num": "risk_avg"})
+    )
+
+    def avg_to_level(x: float) -> int:
+        if x <= 1.5: return 1
+        elif x <= 2.1: return 2
+        elif x > 2.1: return 3
+        else: return 3
+
+    risk_by_amp["risk_level"] = risk_by_amp["risk_avg"].apply(avg_to_level)
+
+    # สร้างคีย์ normalize สำหรับจับคู่กับ DB
+    risk_by_amp["prov_key"] = risk_by_amp["prov_nam_t"].map(normalize_th)
+    risk_by_amp["dist_key"] = risk_by_amp["amphoe_t"].map(normalize_th)
+
+    # =========================
+    # 4) โหลด provinces_df / districts_df จาก DB (คุณมีอยู่แล้ว)
+    #    ตัวอย่างด้านล่างสมมติว่ามี DataFrame สองตัวนี้อยู่แล้ว
+    #    provinces_df: [province_id, province_name, province_name_en]
+    #    districts_df: [district_id, province_id, district_name, district_name_en]
+    # =========================
+    # >>> ใส่ DataFrame ของคุณแทน ส่วนนี้ <<<
+    # provinces_df = ...
+    # districts_df = ...
+
+    # ทำคีย์ normalize ให้ provinces/districts
+    provinces_df = provinces_df.copy()
+    districts_df = districts_df.copy()
+    provinces_df["prov_key"] = provinces_df["province_name"].astype(str).map(normalize_th)
+    districts_df["dist_key"] = districts_df["district_name"].astype(str).map(normalize_th)
+
+    # รวม district ↔ province เพื่อให้ district มีชื่อจังหวัดด้วย
+    dist_with_prov = districts_df.merge(
+        provinces_df[["province_id", "prov_key", "province_name", "province_name_en"]],
+        on="province_id",
+        how="left",
+        validate="many_to_one"
+    ).rename(columns={"prov_key": "prov_key_db"})
+
+    # =========================
+    # 5) จับคู่ด้วย (จังหวัด, อำเภอ) แบบ normalize แล้วดึง id
+    # =========================
+    matched = risk_by_amp.merge(
+        dist_with_prov,
+        left_on=["prov_key", "dist_key"],
+        right_on=["prov_key_db", "dist_key"],
+        how="left",
+        indicator=True,
+        validate="one_to_many"  # 1 shapefile row ต่อหลาย district (กรณีชื่อซ้ำ) ก็ยังพอได้ แต่ควรเป็น one_to_one ถ้าข้อมูลสะอาด
+    )
+
+    # รวม district ↔ province เพื่อให้ district มีชื่อจังหวัดด้วย
+    dist_with_prov = districts_df.merge(
+        provinces_df[["province_id", "prov_key", "province_name", "province_name_en"]],
+        on="province_id",
+        how="left",
+        validate="many_to_one"
+    ).rename(columns={"prov_key": "prov_key_db"})
+
+    # =========================
+    # 5) จับคู่ด้วย (จังหวัด, อำเภอ) แบบ normalize แล้วดึง id
+    # =========================
+    matched = risk_by_amp.merge(
+        dist_with_prov,
+        left_on=["prov_key", "dist_key"],
+        right_on=["prov_key_db", "dist_key"],
+        how="left",
+        indicator=True,
+        validate="one_to_many"  # 1 shapefile row ต่อหลาย district (กรณีชื่อซ้ำ) ก็ยังพอได้ แต่ควรเป็น one_to_one ถ้าข้อมูลสะอาด
+    )
+
+    # ---------- 6) เตรียมผลลัพธ์สำหรับเขียนลง DB ----------
+    result = (
+        matched[[
+            "province_id", "district_id", "risk_level"
+        ]]
+        .dropna(subset=["province_id","district_id","risk_level"])
+        .astype({"province_id":"int64","district_id":"int64","risk_level":"int64"})
+        .drop_duplicates(subset=["district_id"])
+        .reset_index(drop=True)
+    )
+    # แนบ batch id (upload_risk_id) เพิ่ม ถ้าตารางรองรับ
+    result["upload_risk_id"] = int(upload_risk_id)
+
+    bind = engine.get_bind()  # ได้ Engine/Connection จริง
+    with bind.begin() as conn:
+        result.to_sql(
+            "risk_points",
+            con=conn,
+            if_exists="append",
+            index=False,
+            method="multi",
+            chunksize=2000
+        )
+
+
+
+    # =========================
+    # ตรวจที่หาไม่เจอ
+    # =========================
+    # result = (
+    #     matched[[
+    #         "province_id",
+    #         "province_name",
+    #         "district_id",
+    #         "district_name",
+    #         "amphoe_t",
+    #         "prov_nam_t",
+    #         "risk_level"
+    #     ]]
+    #     .rename(columns={
+    #         "amphoe_t": "district_name_th_dbf",
+    #         "prov_nam_t": "province_name_th_dbf"
+    #     })
+    #     .sort_values(["risk_level"], ascending=[False])
+    #     .reset_index(drop=True)
+    # )
+
+    # print("ตัวอย่างผลลัพธ์:")
+    # print(result.head(20))
+
+    # # แถวที่แมตช์ไม่ได้ (ไม่มี district_id/province_id)
+    # unmatched = result[result["district_id"].isna() | result["province_id"].isna()]
+    # print(f"จำนวนแถวแมตช์ไม่เจอ: {len(unmatched)}")
+    # if len(unmatched) > 0:
+    #     print(unmatched[["province_name_th_dbf", "district_name_th_dbf"]].head(20))
+
+
+
+
+            
