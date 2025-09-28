@@ -199,7 +199,14 @@ async def list_province(db: Session = Depends(get_db)):
     ) 
 
 @app.get("/list_district", response_model=DistrictListOut)
-async def list_district(db: Session = Depends(get_db)):
+async def list_district(
+    province_id: Optional[str] = Query('all', description='เช่น "all" หรือ "50" หรือ "50,51"'),
+    db: Session = Depends(get_db)
+):
+    conds = []
+    if province_id != 'all' :
+        conds.append(District.province_id == int(province_id))
+
     stmt = (
         select(
             District.district_id,
@@ -209,6 +216,8 @@ async def list_district(db: Session = Depends(get_db)):
         .order_by(District.province_id.asc())
         .order_by(District.district_id.asc())
     )
+    if conds:
+        stmt = stmt.where(and_(*conds))
 
     rows = db.execute(stmt).all()
 

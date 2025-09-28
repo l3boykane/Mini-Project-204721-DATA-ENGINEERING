@@ -127,6 +127,38 @@ export default function Rain() {
 	}, [open])
 
 	useEffect(() => {
+		async function fetchDistrict(province_id = filterOption.province_id, init: RequestInit = {}) {
+			try {
+				const res = await fetch(`${API_BASE}/list_district?province_id=${province_id}`, { 
+					cache: "no-store",
+					credentials: 'include',
+					headers: { 'Content-Type': 'application/json', ...(init.headers || {}) },
+					...init,
+				});
+
+				const dataOption = await res.json()
+				if(dataOption.total > 0) {
+					setDataDistrict([{
+						value: "all",
+						label: "ทั้งหมด (All)",
+					}, ...dataOption.items.map((ele:any) => {
+						return {
+							value: ele.district_id,
+							label: ele.district_name + ' (' + ele.district_name_en+ ')',
+						}
+					})]);
+				} else {
+					setDataDistrict([]);
+				}
+			} catch (e: any) {
+				setDataDistrict([]);
+			}
+		}
+
+		fetchDistrict();
+	}, [filterOption.province_id])
+
+	useEffect(() => {
 		async function fetchProvince(init: RequestInit = {}) {
 			try {
 				const res = await fetch(`${API_BASE}/list_province`, { 
@@ -156,52 +188,28 @@ export default function Rain() {
 				setDataProvince([]);
 			}
 		}
-
-		async function fetchDistrict(init: RequestInit = {}) {
-			try {
-				const res = await fetch(`${API_BASE}/list_district`, { 
-					cache: "no-store",
-					credentials: 'include',
-					headers: { 'Content-Type': 'application/json', ...(init.headers || {}) },
-					...init,
-				});
-
-				const dataOption = await res.json()
-				if(dataOption.total > 0) {
-					setDataDistrict([{
-						value: "all",
-						label: "ทั้งหมด (All)",
-					}, ...dataOption.items.map((ele:any) => {
-						return {
-							value: ele.district_id,
-							label: ele.district_name + ' (' + ele.district_name_en+ ')',
-						}
-					})]);
-				} else {
-					setDataDistrict([]);
-				}
-			} catch (e: any) {
-				setDataDistrict([]);
-			}
-		}
-
-		fetchProvince();
-		fetchDistrict();
-
 		
-
+		fetchProvince();
 	}, [])
 
-	const handleChangeProvince = (value: { value: string; label: React.ReactNode }) => {
-		setFilterOption({
-			province_id : value,
-			district_id : filterOption.district_id,
-			date_ranger : filterOption.date_ranger,
-		})
+	const handleChangeProvince = (value:any) => {
+		if(value != 'all') {
+			setFilterOption({
+				province_id : value,
+				district_id : 'all',
+				date_ranger : filterOption.date_ranger,
+			})
+		} else {
+			setFilterOption({
+				province_id : value,
+				district_id : filterOption.district_id,
+				date_ranger : filterOption.date_ranger,
+			})
+		}
 		setPage(1);
 	}
 
-	const handleChangeDistrict = (value: { value: string; label: React.ReactNode }) => {
+	const handleChangeDistrict = (value:any) => {
 		setFilterOption({
 			province_id : filterOption.province_id,
 			district_id : value,
@@ -281,7 +289,8 @@ export default function Rain() {
 												<Select
 													showSearch
 													filterOption={(input:any, option:any) => (option?.label?.toLowerCase() ?? '').includes(input?.toLowerCase())}
-													defaultValue={{ value: 'all', label: 'ทั้งหมด (All)' }}
+													// defaultValue={{ value: 'all', label: 'ทั้งหมด (All)' }}
+													value={filterOption.province_id}
 													options={dataProvince}
 													style={{ width: 250, textAlign: `left` }}
 													onChange={handleChangeProvince}
@@ -293,7 +302,8 @@ export default function Rain() {
 												<Select
 													showSearch
 													filterOption={(input:any, option:any) => (option?.label?.toLowerCase() ?? '').includes(input?.toLowerCase())}
-													defaultValue={{ value: 'all', label: 'ทั้งหมด (All)' }}
+													// defaultValue={{ value: 'all', label: 'ทั้งหมด (All)' }}
+													value={filterOption.district_id}
 													options={dataDistrict}
 													style={{ width: 350, textAlign: `left` }}
 													onChange={handleChangeDistrict}
