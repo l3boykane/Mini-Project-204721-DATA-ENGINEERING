@@ -206,7 +206,6 @@ def init_data (engine, shp_path: str):
             "th": dist_th
         })
 
-    print(finalDF)
     for row in finalDF:
         is_engine = False
         pid = 0
