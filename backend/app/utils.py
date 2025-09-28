@@ -7,7 +7,7 @@ import unicodedata
 import geopandas as gpd
 from dbfread import DBF
 
-from .models import Province, District
+from .models import Province, District, UploadRisk
 
 logger = logging.getLogger("utils")
 # ---------------------- Ingest NetCDF -> Postgres rows -------------------
@@ -18,7 +18,7 @@ def clean_text(x):
     s = str(x)
     # แทนตัวขึ้นบรรทัดด้วยช่องว่าง ป้องกัน CSV ตกบรรทัด
     s = s.replace("\r\n", " ").replace("\r", " ").replace("\n", " ")
-    s = s.replace("จังหวัด", "").replace("กิ่งอำเภอ", "").replace("อำเภอ", "").replace("K. ", "").replace("เมืองเพชรบูรณ์", "เพชรบูรณ์")
+    s = s.replace("จังหวัด", "").replace("กิ่งอำเภอ", "").replace("อำเภอ", "").replace("K. ", "")
     s = s.replace("Muang", "Mueang").replace("Wieng", "Wiang")
     # normalize รูปแบบตัวอักษร (กันสระลอย/ผสมเพี้ยนบางกรณี)
     s = unicodedata.normalize("NFC", s)
@@ -75,8 +75,8 @@ def ingest_nc_north_adm2_to_db(
     )
     north_list = [x.strip() for x in north_env.split(",")]
 
-    adm2_north = adm2[adm2["NAME_1"].isin(north_list)][["NAME_1","NAME_2","geometry"]].copy()
-    adm2_north = adm2_north.rename(columns={"NAME_1":"province","NAME_2":"district"})
+    adm2_north = adm2[adm2["ADM1_EN"].isin(north_list)][["ADM1_EN","ADM2_EN","geometry"]].copy()
+    adm2_north = adm2_north.rename(columns={"ADM1_EN":"province","ADM2_EN":"district"})
 
     # ---------- 4) sjoin จุดกริดกับขอบเขตอำเภอ → เพื่อคำนวณสรุประดับอำเภอ ----------
     gdf_points = gpd.GeoDataFrame(
@@ -187,13 +187,13 @@ def init_data (engine, shp_path: str):
     NORTH_PROVS_EN_LIST = NORTH_PROVS_EN.split(',')
     finalDF = {}
 
-    filtered_df = df[df['NAME_1'].isin(NORTH_PROVS_EN_LIST)]
+    filtered_df = df[df['ADM1_EN'].isin(NORTH_PROVS_EN_LIST)]
 
     for _, row in filtered_df.iterrows():
-        prov_en = clean_text(row['NAME_1'])
-        prov_th = clean_text(row['NL_NAME_1'])
-        dist_en = clean_text(row['NAME_2'])
-        dist_th = clean_text(row['NL_NAME_2'])
+        prov_en = clean_text(row['ADM1_EN'])
+        prov_th = clean_text(row['ADM1_TH'])
+        dist_en = clean_text(row['ADM2_EN'])
+        dist_th = clean_text(row['ADM2_TH'])
 
         if prov_en not in finalDF:
             finalDF[prov_en] = {
@@ -205,6 +205,8 @@ def init_data (engine, shp_path: str):
             "en": dist_en,
             "th": dist_th
         })
+
+    print(finalDF)
     for row in finalDF:
         is_engine = False
         pid = 0
@@ -265,12 +267,21 @@ def ingest_dbf_to_db(
     engine,
     upload_risk_id: int,
     raw_path: str,
+    special_fix: bool=False
 ) -> int:
-    
+    # ---------- 0) โหลด DBF ----------
     table = DBF(raw_path, load=True, encoding="tis-620")
     df_dbf = pd.DataFrame(iter(table))
-    df_dbf["amphoe_t"] = df_dbf["amphoe_t"].astype(str).str.strip()
 
+    # ตรวจคอลัมน์ (รองรับ case-insensitive)
+    df_dbf = df_dbf.rename(columns={col: col.lower() for col in df_dbf.columns})
+    required_cols = {"amphoe_t", "prov_nam_t", "class"}
+    missing = required_cols - set(df_dbf.columns)
+    if missing:
+        print("⚠️ columns ใน DBF:", list(df_dbf.columns))
+        raise KeyError("ไม่พบคอลัมน์สำคัญใน DBF (คาดว่า amphoe_t, prov_nam_t, class)")
+
+    # ---------- 1) เตรียมข้อมูลจาก DB ----------
     rows = engine.query(
         Province.province_id, Province.province_name, Province.province_name_en
     ).all()
@@ -281,36 +292,49 @@ def ingest_dbf_to_db(
     ).all()
     districts_df = pd.DataFrame(rows, columns=["district_id","province_id","district_name","district_name_en"])
 
-    provinces_df["key"] = provinces_df["province_name"].map(clean_text)
-    districts_df["key"] = districts_df["district_name"].map(clean_text)
-    
-    required_cols = {"amphoe_t", "prov_nam_t", "class"}
-    missing = required_cols - set(map(str.lower, df_dbf.columns))
-    if missing:
-        print("⚠️ columns ใน DBF:", list(df_dbf.columns))
-        raise KeyError(f"ไม่พบคอลัมน์สำคัญใน DBF (คาดว่า amphoe_t, prov_nam_t, class)")
+    # คีย์ normalize
+    provinces_df = provinces_df.copy()
+    districts_df = districts_df.copy()
+    provinces_df["prov_key"] = provinces_df["province_name"].astype(str).map(normalize_th)
+    districts_df["dist_key"] = districts_df["district_name"].astype(str).map(normalize_th)
 
-    df_dbf = df_dbf.rename(columns={col: col.lower() for col in df_dbf.columns})
+    if special_fix:
+        # fix ให้ทุกแถวเป็นจังหวัด "อุตรดิตถ์" ไปเลย
+        utt = provinces_df.loc[provinces_df["province_name_en"]=="Uttaradit"].iloc[0]
+        target_key = normalize_th(utt.province_name)
 
+        # เลือกเฉพาะแถวที่ prov_nam_t ไม่ตรงกับจังหวัดจริงใน DB
+        known_prov_keys = set(provinces_df["prov_key"])
+        bad_mask = ~df_dbf["prov_nam_t"].isin(known_prov_keys)
+
+        if bad_mask.any():
+            df_dbf.loc[bad_mask, "prov_nam_t"] = target_key
+            print(f"⚠️ special_fix: set province → Uttaradit ({utt.province_name})")
+
+    # district + province metadata
+    dist_with_prov = districts_df.merge(
+        provinces_df[["province_id","prov_key","province_name","province_name_en"]],
+        on="province_id",
+        how="left",
+        validate="many_to_one"
+    ).rename(columns={"prov_key":"prov_key_db"})
+
+    # ---------- 2) เตรียมข้อมูลจากไฟล์ ----------
     df_dbf["amphoe_t"]   = df_dbf["amphoe_t"].astype(str).map(normalize_th)
     df_dbf["prov_nam_t"] = df_dbf["prov_nam_t"].astype(str).map(normalize_th)
-    df_dbf["class_num"]  = df_dbf["class"].apply(class_to_num)
 
-
-    # รายการ class ที่ map ไม่ได้ (ถ้ามี)
+    # map ระดับชั้นเป็นตัวเลข
+    df_dbf["class_num"] = df_dbf["class"].apply(class_to_num)
     unknown = df_dbf[df_dbf["class_num"].isna()]["class"].drop_duplicates()
     if len(unknown) > 0:
         print("⚠️ พบ class ที่ยัง map ไม่ได้:", unknown.to_list())
 
-    # =========================
-    # 3) สรุป risk สูงสุดต่อ (จังหวัด, อำเภอ)
-    # =========================
-
+    # สรุปเฉลี่ยความเสี่ยงต่อ (จังหวัด, อำเภอ)
     risk_by_amp = (
         df_dbf.dropna(subset=["class_num"])
-            .groupby(["prov_nam_t", "amphoe_t"], as_index=False)["class_num"]
-            .mean()
-            .rename(columns={"class_num": "risk_avg"})
+             .groupby(["prov_nam_t","amphoe_t"], as_index=False)["class_num"]
+             .mean()
+             .rename(columns={"class_num":"risk_avg"})
     )
 
     def avg_to_level(x: float) -> int:
@@ -320,81 +344,63 @@ def ingest_dbf_to_db(
         else: return 3
 
     risk_by_amp["risk_level"] = risk_by_amp["risk_avg"].apply(avg_to_level)
+    risk_by_amp["prov_key"] = risk_by_amp["prov_nam_t"]
+    risk_by_amp["dist_key"] = risk_by_amp["amphoe_t"]
 
-    # สร้างคีย์ normalize สำหรับจับคู่กับ DB
-    risk_by_amp["prov_key"] = risk_by_amp["prov_nam_t"].map(normalize_th)
-    risk_by_amp["dist_key"] = risk_by_amp["amphoe_t"].map(normalize_th)
-
-    # =========================
-    # 4) โหลด provinces_df / districts_df จาก DB (คุณมีอยู่แล้ว)
-    #    ตัวอย่างด้านล่างสมมติว่ามี DataFrame สองตัวนี้อยู่แล้ว
-    #    provinces_df: [province_id, province_name, province_name_en]
-    #    districts_df: [district_id, province_id, district_name, district_name_en]
-    # =========================
-    # >>> ใส่ DataFrame ของคุณแทน ส่วนนี้ <<<
-    # provinces_df = ...
-    # districts_df = ...
-
-    # ทำคีย์ normalize ให้ provinces/districts
-    provinces_df = provinces_df.copy()
-    districts_df = districts_df.copy()
-    provinces_df["prov_key"] = provinces_df["province_name"].astype(str).map(normalize_th)
-    districts_df["dist_key"] = districts_df["district_name"].astype(str).map(normalize_th)
-
-    # รวม district ↔ province เพื่อให้ district มีชื่อจังหวัดด้วย
-    dist_with_prov = districts_df.merge(
-        provinces_df[["province_id", "prov_key", "province_name", "province_name_en"]],
-        on="province_id",
-        how="left",
-        validate="many_to_one"
-    ).rename(columns={"prov_key": "prov_key_db"})
-
-    # =========================
-    # 5) จับคู่ด้วย (จังหวัด, อำเภอ) แบบ normalize แล้วดึง id
-    # =========================
+    # ---------- 3) จับคู่ (จังหวัด, อำเภอ) กับข้อมูลใน DB ----------
     matched = risk_by_amp.merge(
         dist_with_prov,
-        left_on=["prov_key", "dist_key"],
-        right_on=["prov_key_db", "dist_key"],
+        left_on=["prov_key","dist_key"],
+        right_on=["prov_key_db","dist_key"],
         how="left",
         indicator=True,
-        validate="one_to_many"  # 1 shapefile row ต่อหลาย district (กรณีชื่อซ้ำ) ก็ยังพอได้ แต่ควรเป็น one_to_one ถ้าข้อมูลสะอาด
+        validate="one_to_many"
     )
 
-    # รวม district ↔ province เพื่อให้ district มีชื่อจังหวัดด้วย
-    dist_with_prov = districts_df.merge(
-        provinces_df[["province_id", "prov_key", "province_name", "province_name_en"]],
-        on="province_id",
-        how="left",
-        validate="many_to_one"
-    ).rename(columns={"prov_key": "prov_key_db"})
+    # ---------- 4) เติมอำเภอที่ "ขาด" ด้วย risk_level=1 ----------
+    # 4.1 หา "ชุดจังหวัด" ที่ปรากฏในไฟล์ (prov_key ที่เจอใน risk_by_amp)
+    prov_keys_in_file = set(risk_by_amp["prov_key"].unique())
 
-    # =========================
-    # 5) จับคู่ด้วย (จังหวัด, อำเภอ) แบบ normalize แล้วดึง id
-    # =========================
-    matched = risk_by_amp.merge(
-        dist_with_prov,
-        left_on=["prov_key", "dist_key"],
-        right_on=["prov_key_db", "dist_key"],
-        how="left",
-        indicator=True,
-        validate="one_to_many"  # 1 shapefile row ต่อหลาย district (กรณีชื่อซ้ำ) ก็ยังพอได้ แต่ควรเป็น one_to_one ถ้าข้อมูลสะอาด
+    # 4.2 map prov_key -> province_id ที่มีอยู่จริง (normalize ด้วย prov_key)
+    prov_map = provinces_df[["province_id","prov_key"]].drop_duplicates()
+    prov_ids_in_file = prov_map[prov_map["prov_key"].isin(prov_keys_in_file)]["province_id"].unique()
+
+    # 4.3 ดึง "อำเภอทั้งหมด" ของจังหวัดที่อยู่ในไฟล์
+    all_districts_in_those_provs = dist_with_prov[dist_with_prov["province_id"].isin(prov_ids_in_file)][
+        ["province_id","district_id","dist_key","prov_key_db"]
+    ].drop_duplicates()
+
+    # 4.4 หาอำเภอที่ยังไม่ถูกแมตช์ (คือยังไม่มี district_id ใน matched ที่จบแล้ว)
+    matched_ok = matched[~matched["district_id"].isna()][["province_id","district_id"]].drop_duplicates()
+    missing_districts = all_districts_in_those_provs.merge(
+        matched_ok, on=["province_id","district_id"], how="left", indicator=True
     )
+    missing_districts = missing_districts[missing_districts["_merge"]=="left_only"].drop(columns=["_merge"])
 
-    # ---------- 6) เตรียมผลลัพธ์สำหรับเขียนลง DB ----------
-    result = (
-        matched[[
-            "province_id", "district_id", "risk_level"
-        ]]
+    # 4.5 สร้างแถวเติม risk_level=1 สำหรับอำเภอที่ขาด
+    # เงื่อนไข: ต้องแน่ใจว่า "จังหวัดนั้น" พบในไฟล์จริงๆ (โดยใช้ prov_key_db ที่อยู่ในรายการ prov_keys_in_file)
+    missing_districts = missing_districts[missing_districts["prov_key_db"].isin(prov_keys_in_file)].copy()
+    fill_df = missing_districts[["province_id","district_id"]].copy()
+    fill_df["risk_level"] = 1
+    fill_df["upload_risk_id"] = int(upload_risk_id)
+
+    # ---------- 5) เตรียมผลลัพธ์สำหรับเขียนลง DB ----------
+    result_matched = (
+        matched[["province_id","district_id","risk_level"]]
         .dropna(subset=["province_id","district_id","risk_level"])
         .astype({"province_id":"int64","district_id":"int64","risk_level":"int64"})
         .drop_duplicates(subset=["district_id"])
         .reset_index(drop=True)
     )
-    # แนบ batch id (upload_risk_id) เพิ่ม ถ้าตารางรองรับ
-    result["upload_risk_id"] = int(upload_risk_id)
+    result_matched["upload_risk_id"] = int(upload_risk_id)
 
-    bind = engine.get_bind()  # ได้ Engine/Connection จริง
+    # รวมผลที่แมตช์ได้ + แถวเติม
+    result = pd.concat([result_matched, fill_df], ignore_index=True).drop_duplicates(
+        subset=["district_id","upload_risk_id"], keep="first"
+    )
+
+    # ---------- 6) เขียนลง DB ----------
+    bind = engine.get_bind()
     with bind.begin() as conn:
         result.to_sql(
             "risk_points",
@@ -405,37 +411,7 @@ def ingest_dbf_to_db(
             chunksize=2000
         )
 
-
-
-    # =========================
-    # ตรวจที่หาไม่เจอ
-    # =========================
-    # result = (
-    #     matched[[
-    #         "province_id",
-    #         "province_name",
-    #         "district_id",
-    #         "district_name",
-    #         "amphoe_t",
-    #         "prov_nam_t",
-    #         "risk_level"
-    #     ]]
-    #     .rename(columns={
-    #         "amphoe_t": "district_name_th_dbf",
-    #         "prov_nam_t": "province_name_th_dbf"
-    #     })
-    #     .sort_values(["risk_level"], ascending=[False])
-    #     .reset_index(drop=True)
-    # )
-
-    # print("ตัวอย่างผลลัพธ์:")
-    # print(result.head(20))
-
-    # # แถวที่แมตช์ไม่ได้ (ไม่มี district_id/province_id)
-    # unmatched = result[result["district_id"].isna() | result["province_id"].isna()]
-    # print(f"จำนวนแถวแมตช์ไม่เจอ: {len(unmatched)}")
-    # if len(unmatched) > 0:
-    #     print(unmatched[["province_name_th_dbf", "district_name_th_dbf"]].head(20))
+    return int(len(result))
 
 
 

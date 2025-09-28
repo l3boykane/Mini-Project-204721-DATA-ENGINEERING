@@ -43,7 +43,7 @@ os.makedirs(STORAGE_DIR, exist_ok=True)
 
 PROV_BOUNDARY = os.getenv(
     "PROVINCE_BOUNDARY_PATH",
-    os.path.join(STORAGE_DIR, "admin/gadm41_THA_2.shp")
+    os.path.join(STORAGE_DIR, "admin/tha_admbnda_adm2_rtsd_20220121.shp")
 )
 NC_VAR_NAME = os.getenv("NC_VAR_NAME", "precip")
 MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "4096"))
@@ -89,7 +89,6 @@ def me(user: User = Depends(get_current_user)):
 # ---------------- Init Data Province District ----------------
 @app.get("/init_data_province_district")
 def init_data_province_district(db: Session = Depends(get_db)):
-    print(PROV_BOUNDARY)
     if not os.path.exists(PROV_BOUNDARY):
         raise HTTPException(400, f"Province boundary file not found: {PROV_BOUNDARY}")
     try:
@@ -305,7 +304,7 @@ async def list_rain(
             province_name=r.province_name,
             province_name_en=r.province_name_en,
             district_name=r.district_name,
-            district_name_en=r.district_name,
+            district_name_en=r.district_name_en,
         )
         for r in rows
     ]
@@ -384,7 +383,7 @@ async def list_province_district(
             province_name=r.province_name,
             province_name_en=r.province_name_en,
             district_name=r.district_name,
-            district_name_en=r.district_name,
+            district_name_en=r.district_name_en,
         )
         for r in rows
     ]
@@ -432,11 +431,16 @@ async def upload_dbf(
         owner_id=user.user_id,
     )
     db.add(row); db.commit(); db.refresh(row)
+
+    special_fix = False
+    if(file.filename == 'landslide_utt.dbf'):
+        special_fix = True
     try:
         total = ingest_dbf_to_db(
             engine=db,
             upload_risk_id=row.upload_risk_id,
             raw_path=raw_path,
+            special_fix=special_fix
         )
     except Exception as e:
         logger.exception("ingest failed: %s", e)
@@ -518,7 +522,7 @@ async def list_risk(
             province_name=r.province_name,
             province_name_en=r.province_name_en,
             district_name=r.district_name,
-            district_name_en=r.district_name,
+            district_name_en=r.district_name_en,
         )
         for r in rows
     ]

@@ -1,7 +1,7 @@
 # 🌍 Landslide Data Ingestion Platform
 
 ระบบทดลอง **อัปโหลด วิเคราะห์ และจัดเก็บข้อมูลดินถล่ม**  
-- Backend: [FastAPI](https://fastapi.tiangolo.com/) (JWT cookie auth, Upload `.nc`, `.csv/.xlsx`)  
+- Backend: [FastAPI](https://fastapi.tiangolo.com/) (JWT cookie auth, Upload `.nc`, `.csv/.xlsx`, `.dbf`)  
 - Frontend: [Next.js](https://nextjs.org/) + [Ant Design](https://ant.design/)  
 - Database: PostgreSQL  
 - Database UI: Adminer  
@@ -49,4 +49,10 @@ docker compose up -d
 curl -X POST http://localhost:8000/auth/register \
   -H "Content-Type: application/json" \
   -d '{"username":"admin","password":"admin1234@##","full_name":"Administrator"}'
+```
+
+
+### 3. Init Data Province And District_name 
+```bash
+curl -X POST http://localhost:8000/init_data_province_district
 ```
