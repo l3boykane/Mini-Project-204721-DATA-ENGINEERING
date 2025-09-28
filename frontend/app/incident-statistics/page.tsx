@@ -1,14 +1,17 @@
 'use client';
 import React, { useEffect, useState, Fragment } from 'react';
-import { Button, Card, Upload, UploadProps, message, Table, Row, Col, Breadcrumb, Modal, Spin, Select, Space, Typography } from 'antd';
+import { Button, Card, Upload, UploadProps, message, Table, Row, Col, Breadcrumb, Modal, Spin, Select, Space, Typography, DatePicker } from 'antd';
 import { UploadOutlined, DatabaseOutlined, InboxOutlined} from '@ant-design/icons';
 import { API_BASE, apiForm } from '@/lib/api';
 import type { TableProps } from 'antd';
+const { RangePicker } = DatePicker;
+import type { Dayjs } from 'dayjs';
 
 type FilterOption = {
   province_id: { value: string; label: React.ReactNode } | 'all';
   district_id: { value: string; label: React.ReactNode } | 'all';
-  risk_level: { value: string; label: React.ReactNode } | 'all';
+  date_ranger: any;
+
   
 };
 
@@ -33,11 +36,11 @@ type DataDistrict = {
 	district_name_en: string;
 };
 
-export default function LandSideRisk() {
+export default function IncidentStatistics() {
 	const [open, setOpen] = useState(false);
 	const [isLoading, setIsLoading] = useState(false);
-	const [orderField, setOrderField] = useState('date');
-	const [orderType, setOrderType] = useState('asc');
+	const [orderField, setOrderField] = useState('disaster_date');
+	const [orderType, setOrderType] = useState('desc');
 	const [dataSource, setDataSource] = useState<DataSource>({
 		page: 1,
 		page_size: 10,
@@ -50,7 +53,7 @@ export default function LandSideRisk() {
 	const [filterOption, setFilterOption] = useState<FilterOption>({
 		province_id : 'all',
 		district_id : 'all',
-		risk_level : 'all',
+		date_ranger : null,
 	});
 	const [page, setPage] = useState(1);
   	const [pageSize, setPageSize] = useState(10);
@@ -64,13 +67,21 @@ export default function LandSideRisk() {
 	};
 
 
-	async function refresh(p=page, ps=pageSize, order_by=orderField, order_type=orderType, province_id=filterOption.province_id, district_id=filterOption.district_id, risk_level=filterOption.risk_level, init: RequestInit = {}) {
+	async function refresh(p=page, ps=pageSize, order_by=orderField, order_type=orderType, province_id=filterOption.province_id, district_id=filterOption.district_id, date_ranger=filterOption.date_ranger, init: RequestInit = {}) {
 		hideModal();
 		try {
 			setIsLoading(true);
-			
+			let date_start = null;
+			let date_end = null;
+			let dateFilter = '';
+			if(date_ranger) {
+				let date_ranger_spit = date_ranger.split(',');
+				date_start = date_ranger_spit[0];
+				date_end = date_ranger_spit[1];
+				dateFilter = `&date_start=${date_start}&date_end=${date_end}`;
+			}
 
-			const res = await fetch(`${API_BASE}/list_risk?page=${p}&page_size=${ps}&order_by=${order_by}&order_type=${order_type}&province_id=${province_id}&district_id=${district_id}&risk_level=${risk_level}`, { 
+			const res = await fetch(`${API_BASE}/list_incident_statistics?page=${p}&page_size=${ps}&order_by=${order_by}&order_type=${order_type}&province_id=${province_id}&district_id=${district_id}${dateFilter}`, { 
 				cache: "no-store",
 				credentials: 'include',
 				headers: { 'Content-Type': 'application/json', ...(init.headers || {}) },
@@ -97,8 +108,8 @@ export default function LandSideRisk() {
 				setOrderType((sorter.order == 'descend' ? 'desc' : 'asc'))
 			} else {
 				setPage(1);
-				setOrderField('date')
-				setOrderType('asc')
+				setOrderField('disaster_date')
+				setOrderType('desc')
 			}
 		}
 
@@ -185,7 +196,7 @@ export default function LandSideRisk() {
 		setFilterOption({
 			province_id : value,
 			district_id : filterOption.district_id,
-			risk_level : filterOption.risk_level,
+			date_ranger : filterOption.date_ranger,
 		})
 		setPage(1);
 	}
@@ -194,33 +205,41 @@ export default function LandSideRisk() {
 		setFilterOption({
 			province_id : filterOption.province_id,
 			district_id : value,
-			risk_level : filterOption.risk_level,
+			date_ranger : filterOption.date_ranger,
 		})
 		setPage(1);
 	}
 
-	const handleChangeRisk = (value: { value: string; label: React.ReactNode }) => {
-		setFilterOption({
-			province_id : filterOption.province_id,
-			district_id : filterOption.district_id,
-			risk_level : value,
-		})
-		setPage(1);
+	const handleChangeDateRange = (dates: [Dayjs, Dayjs], dateStrings: [string, string]) => {
+		if(dates) {
+			setFilterOption({
+				province_id : filterOption.province_id,
+				district_id : filterOption.district_id,
+				date_ranger : dateStrings[0] + ',' + dateStrings[1],
+			})
+			setPage(1);
+		} else {
+			setFilterOption({
+				province_id : filterOption.province_id,
+				district_id : filterOption.district_id,
+				date_ranger : null,
+			})
+			setPage(1);
+		}
 	}
-
 
 	const uploadProps: UploadProps = {
 		name: 'file',
 		multiple: false,
 		maxCount: 1,
-		accept: '.dbf',
+		accept: '.xlsx, .xls',
 		customRequest: async (options: any) => {
 			const { file, onSuccess, onError } = options;
 			try {
 				const fd = new FormData();
 				fd.append('file', file as File);
 				setIsLoading(true);
-				await apiForm('/upload_dbf', fd);
+				await apiForm('/upload_excel', fd);
 				message.success('Upload Success');
 				await refresh();
 				onSuccess?.(null, file);
@@ -236,23 +255,26 @@ export default function LandSideRisk() {
 	return (
 		<Fragment>
 			<Breadcrumb className="breadcrumb-design" separator={`>`}
-				items={[{ title: 'Home', path: '/', }, { title: 'Landslide risk area' }]}
+				items={[{ title: 'Home', path: '/', }, { title: 'Incident statistics' }]}
 			/>
 			<div className="block-content">
 				<Row gutter={[16, 16]}>
 					<Col span={24} className="text-right">
 						<Button type="primary" onClick={showModal}>
-							อัปโหลดข้อมูลพื้นที่เสี่ยงดินถล่ม (Upload Data Landslide risk area)
+							อัปโหลดข้อมูลสถิติเหตุการณ์ (Upload Data Incident statistics)
 						</Button>
 					</Col>
 					<Col span={24}>
 						<Spin spinning={isLoading} size={`large`}>
-							<Card title={<span><DatabaseOutlined /> Landslide risk area</span>}>
+							<Card title={<span><DatabaseOutlined /> Incident statistics</span>}>
 								
 								<Row gutter={[24, 24]}>
 									<Col span={24} className="text-right">
 										<Space size={`large`}>
-											
+											<Space>
+												<Typography.Text>ช่วงวันที่ (Date range) : </Typography.Text>
+												<RangePicker onChange={handleChangeDateRange}/>
+											</Space>
 
 											<Space>
 												<Typography.Text>จังหวัด (Province) : </Typography.Text>
@@ -277,35 +299,6 @@ export default function LandSideRisk() {
 													onChange={handleChangeDistrict}
 												/>
 											</Space>
-
-											<Space>
-												<Typography.Text>ระดับความเสี่ยง (Risk level)</Typography.Text>
-												<Select
-													showSearch
-													filterOption={(input:any, option:any) => (option?.label?.toLowerCase() ?? '').includes(input?.toLowerCase())}
-													defaultValue={{ value: 'all', label: 'ทั้งหมด (All)' }}
-													options={[
-														{
-															value: "all",
-															label: "ทั้งหมด (All)",
-														},
-														{
-															value : 1,
-															label : 'ความเสี่ยงต่ำ (Low risk)'
-														},
-														{
-															value : 2,
-															label : 'ความเสี่ยงปานกลาง (Medium risk)'
-														},
-														{
-															value : 3,
-															label : 'ความเสี่ยงสูง (High risk)'
-														}
-													]}
-													style={{ width: 300, textAlign: `left` }}
-													onChange={handleChangeRisk}
-												/>
-											</Space>
 											
 										</Space>
 									</Col>
@@ -322,7 +315,17 @@ export default function LandSideRisk() {
 														return (((dataSource.page - 1) * dataSource.page_size) + (index + 1)).toLocaleString();
 													}
 												},
-												
+												{ 
+													title: (<Fragment>
+														<div>วันที่เกิดภัยพิบัติ</div>
+														<div>Disaster date</div>
+													</Fragment>), 
+													align:'center', 
+													width: 230, 
+													dataIndex: 'disaster_date',
+													sortDirections: ['ascend', 'descend'],
+													sorter: true, defaultSortOrder: 'descend' 
+												},
 												{ 
 													title: 'จังหวัด (Province)', 
 													dataIndex: 'province_name',
@@ -344,23 +347,15 @@ export default function LandSideRisk() {
 													}
 												},
 												{ 
-													title: 'ระดับความเสี่ยง (Risk level)', 
+													title: (<Fragment>
+														<div>จำนวนครั้งที่เกิดภัยพิบัติ</div>
+														<div>Number of disasters</div>
+													</Fragment>), 
 													align:'center', 
 													width: 250, 
-													dataIndex: 'risk_level', 
+													dataIndex: 'count_of_disasters', 
 													sortDirections: ['ascend', 'descend'],
-													sorter: true,
-													render: (value:number) => {
-														if(value == 1) {
-															return 'ความเสี่ยงต่ำ (Low risk)'
-														} else if(value == 2) {
-															return 'ความเสี่ยงปานกลาง (Medium risk)'
-
-														} else {
-															return 'ความเสี่ยงสูง (High risk)'
-
-														}
-													}
+													sorter: true
 												}
 											]}
 											pagination={{
@@ -389,7 +384,7 @@ export default function LandSideRisk() {
 				</Row>
 
 				<Modal
-					title="อัปโหลดข้อมูลพื้นที่เสี่ยงดินถล่ม (Upload Data Landslide risk area)"
+					title="อัปโหลดข้อมูลสถิติเหตุการณ์ (Upload Data Incident statistics)"
 					open={open}
 					onOk={hideModal}
 					onCancel={hideModal}

@@ -1,5 +1,5 @@
 from __future__ import annotations
-import os, logging, re
+import os, logging, re, io
 import numpy as np
 import xarray as xr
 import pandas as pd
@@ -7,9 +7,17 @@ import unicodedata
 import geopandas as gpd
 from dbfread import DBF
 
-from .models import Province, District, UploadRisk
+from .models import Province, District
+from fastapi import File, UploadFile, HTTPException
+from sqlalchemy import text
+
 
 logger = logging.getLogger("utils")
+ACCEPTED_SHEETS = [
+    "ดินถล่ม67-รายการพื้นที่เกิด",
+    "พื้นที่เกิด",
+    "รายการพื้นที่เกิด รายหมู่บ้าน"
+]
 # ---------------------- Ingest NetCDF -> Postgres rows -------------------
 
 def clean_text(x):
@@ -413,6 +421,186 @@ def ingest_dbf_to_db(
     return int(len(result))
 
 
+def normalize_sheets(s: str) -> str:
+    """ทำให้เทียบชื่อชีตได้ยืดหยุ่นขึ้น:
+    - แปลงเป็น lower
+    - ตัดช่องว่าง / ขีดกลาง / อักขระพิเศษออก
+    - ลบตัวเลขท้าย ๆ ที่เป็นปี (เช่น 67, 2567, 2024) ถ้าต้องการ
+    """
+    s = s.strip().lower()
+    s = re.sub(r"\s+", "", s)           # ลบช่องว่างทั้งหมด
+    s = re.sub(r"[^\wก-๙]+", "", s)     # เก็บเฉพาะตัวอักษร/ตัวเลขไทย-อังกฤษ
+    # เลือกได้: ตัดปีท้ายชื่อ เช่น 67, 2567, 2024 เพื่อให้ robust
+    s = re.sub(r"(19|20)\d{2}$", "", s) # ลบ ค.ศ. ท้าย
+    s = re.sub(r"(25)\d{2}$", "", s)    # ลบ พ.ศ. ท้าย
+    return s
 
+def choose_sheet(available: list[str], requested: str | None) -> str:
+    norm_avail = {normalize_sheets(x): x for x in available}
+    if requested:
+        # แมตช์ชื่อที่ user ส่งมาแบบยืดหยุ่น
+        nreq = normalize_sheets(requested)
+        if nreq in norm_avail:
+            return norm_avail[nreq]
+        raise HTTPException(status_code=400, detail=f"ไม่พบชีต '{requested}' ในไฟล์ (มี: {available})")
+
+    # ถ้าไม่ได้ส่งชื่อมา ให้ลองหาจาก ACCEPTED_SHEETS ตามลำดับความสำคัญ
+    for name in ACCEPTED_SHEETS:
+        n = normalize_sheets(name)
+        if n in norm_avail:
+            return norm_avail[n]
+
+    # ไม่เจอ—ดีฟอลต์ชีตแรก
+    return available[0]
+
+
+async def ingest_excel_to_db(
+    engine,
+    file: UploadFile = File(...)
+) -> int:
+    
+    content = await file.read()
+    try:
+        xls = pd.ExcelFile(io.BytesIO(content), engine="openpyxl")
+        all_sheets = xls.sheet_names
+
+        formatExcel = 1
+        target = choose_sheet(all_sheets, None)
+
+        df = pd.read_excel(io.BytesIO(content), sheet_name=target, engine="openpyxl")
+        df.columns = [str(c).strip() for c in df.columns]
+
+
+        required_cols = ["Disaster Date", "Province", "District"]
+        for col in required_cols:
+            if col not in df.columns:
+                formatExcel = 2
+
+        if formatExcel == 2:
+            df = pd.read_excel(
+            io.BytesIO(content),
+                sheet_name=target,
+                skiprows=2,   # ⬅️ ข้ามสองแถวแรก
+                engine="openpyxl"
+            )
+            df.columns = [str(c).strip() for c in df.columns]
+
+            df = df.rename(columns={'วันที่เกิดภัย' : 'Disaster Date', 'จังหวัด' : 'Province', 'อำเภอ' : 'District'})
+        else:
+            df = df[required_cols]
+
+        provinces = engine.query(Province).all()
+        districts = engine.query(District).all()
+
+        # สร้าง dict mapping
+        province_map = {p.province_name.strip(): p.province_id for p in provinces}
+        district_map = {d.district_name.strip(): d.district_id for d in districts}
+
+        def map_province(name):
+            return province_map.get(str(name).strip())
+
+        def map_district(name):
+            return district_map.get(str(name).strip())
+
+        df["province_id"] = df["Province"].map(map_province)
+        df["district_id"] = df["District"].map(map_district)
+        df["Disaster Date"] = pd.to_datetime(
+            df["Disaster Date"],
+            format="%Y-%m-%d",  # ถ้าข้อมูล Excel เป็น yyyy-mm-dd
+            errors="coerce"
+        )
+
+        df["year"] = df["Disaster Date"].dt.year
+
+        df["Disaster Date"] = df["Disaster Date"].dt.date
+
+        # ✅ แยกเป็น 2 กลุ่ม
+        df = df.rename(columns={'Disaster Date' : 'disaster_date'})
+
+        matched = df.dropna(subset=["province_id", "district_id"])
+
+        
+
+        # ✅ เตรียมผลลัพธ์
+        # unmatched = df[df["province_id"].isna() | df["district_id"].isna()]
+        # matched_preview = matched[["disaster_date", "year", "province_id", "district_id"]].fillna("").to_dict(orient="records")
+        # unmatched_preview = unmatched[["disaster_date", "year", "Province", "District"]].fillna("").to_dict(orient="records")
+
+        # print(matched_preview)
+        # print(unmatched_preview)
+
+        matched_out = matched.loc[:, ["disaster_date", "year", "province_id", "district_id"]].copy()
+        matched_out["disaster_date"] = pd.to_datetime(matched_out["disaster_date"]).dt.normalize()
+        matched_out["year"] = pd.to_numeric(matched_out["year"], errors="coerce").astype("Int64")
+        matched_out["province_id"] = pd.to_numeric(matched_out["province_id"], errors="coerce").astype("Int64")
+        matched_out["district_id"] = pd.to_numeric(matched_out["district_id"], errors="coerce").astype("Int64")
+        per_key_counts = (
+            matched_out
+            .groupby(["disaster_date", "province_id", "district_id"], as_index=False)
+            .size()
+            .rename(columns={"size": "count_of_disasters"})
+        )
+
+        before_infile = len(matched_out)
+        dedup_infile = matched_out.drop_duplicates(subset=["disaster_date", "province_id", "district_id"], keep="first")
+        after_infile = len(dedup_infile)
+        dropped_infile = before_infile - after_infile
+
+        min_date = dedup_infile["disaster_date"].min()
+        max_date = dedup_infile["disaster_date"].max()
+
+        bind = engine.get_bind()
+        with bind.connect() as conn:
+            existing_keys = pd.read_sql(
+                text("""
+                    SELECT disaster_date, province_id, district_id
+                    FROM incident_statistics_points
+                    WHERE disaster_date >= :min_date AND disaster_date <= :max_date
+                """),
+                conn,
+                params={"min_date": min_date, "max_date": max_date}
+            )
+
+        # ---------- left-anti join เหลือเฉพาะแถวที่ยังไม่มีใน DB ----------
+        if not existing_keys.empty:
+            existing_keys["disaster_date"] = pd.to_datetime(existing_keys["disaster_date"]).dt.normalize()
+            existing_keys["province_id"] = pd.to_numeric(existing_keys["province_id"], errors="coerce").astype("Int64")
+            existing_keys["district_id"] = pd.to_numeric(existing_keys["district_id"], errors="coerce").astype("Int64")
+
+            merged = dedup_infile.merge(
+                existing_keys,
+                on=["disaster_date", "province_id", "district_id"],
+                how="left",
+                indicator=True
+            )
+            to_insert = merged[merged["_merge"] == "left_only"].drop(columns=["_merge"])
+        else:
+            to_insert = dedup_infile.copy()
+
+        
+
+        to_insert = to_insert.merge(per_key_counts, on=["disaster_date", "province_id", "district_id"], how="left")
+        to_insert["count_of_disasters"] = to_insert["count_of_disasters"].fillna(1).astype(int)
+
+        # -------- เขียนเฉพาะแถวที่เหลือจริง ๆ --------
+        inserted_rows = 0
+        if not to_insert.empty:
+            with bind.begin() as conn:
+                to_insert.to_sql(
+                    "incident_statistics_points",
+                    con=conn,
+                    if_exists="append",
+                    index=False,
+                    method="multi",
+                    chunksize=2000
+                    # ถ้าต้องการกำหนด dtype ชัด ๆ ค่อยเพิ่ม dtype={}
+                )
+            inserted_rows = len(to_insert)
+        
+        return inserted_rows
+     
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=f"อ่านไฟล์ไม่สำเร็จ: {e}")
+   
 
             

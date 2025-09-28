@@ -95,3 +95,25 @@ class ListRiskPaginationOut(BaseModel):
     total: int
     all_page: int
     items: List[RiskPointOut]
+
+class IncidentStatisticsPointOut(BaseModel):
+    id: int
+    disaster_date: dt.date
+    count_of_disasters: int
+    province_id: int
+    district_id: int
+    province_name: str
+    district_name: str
+    province_name_en: str
+    district_name_en: str
+    class Config:
+        from_attributes = True
+
+class ListIncidentStatisticsPaginationOut(BaseModel):
+    page: int
+    page_size: int
+    total: int
+    all_page: int
+    items: List[IncidentStatisticsPointOut]
+
+    

@@ -1,16 +1,17 @@
 # backend/app/main.py
 from __future__ import annotations
-import os, uuid, logging, shutil, zipfile
+import os, uuid, logging, io
 from typing import Optional
 
 from fastapi import FastAPI, UploadFile, File, Form, Depends, HTTPException, Response, Query
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session, aliased
 from datetime import date
+import pandas as pd
 from sqlalchemy import select, func, asc, desc, and_, or_
 from .database import Base, engine, get_db
-from .models import User, UploadRainPoint, RainPoint, Province, District, UploadRisk, RiskPoint
-from .schemas import UserOut, RegisterIn, LoginIn, ListPaginationOut, ListProvinceDistrictPaginationOut, RainPointOut, ProvinceOut, DistrictOut, ProvinceListOut, DistrictListOut, ProvinceDistrictPointOut, RiskPointOut, ListRiskPaginationOut
+from .models import User, UploadRainPoint, RainPoint, Province, District, UploadRisk, RiskPoint, IncidentStatisticsPoint
+from .schemas import UserOut, RegisterIn, LoginIn, ListPaginationOut, ListProvinceDistrictPaginationOut, RainPointOut, ProvinceOut, DistrictOut, ProvinceListOut, DistrictListOut, ProvinceDistrictPointOut, RiskPointOut, ListRiskPaginationOut, IncidentStatisticsPointOut, ListIncidentStatisticsPaginationOut
 from .auth import (
     hash_password, verify_password,
     create_access_token, set_auth_cookie, clear_auth_cookie,
@@ -19,7 +20,8 @@ from .auth import (
 from .utils import (
     init_data,
     ingest_nc_north_adm2_to_db,
-    ingest_dbf_to_db
+    ingest_dbf_to_db,
+    ingest_excel_to_db
 )
 Base.metadata.create_all(bind=engine)
 # ---------------- App & CORS ----------------
@@ -48,6 +50,7 @@ PROV_BOUNDARY = os.getenv(
 NC_VAR_NAME = os.getenv("NC_VAR_NAME", "precip")
 MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "4096"))
 MAX_BYTES = MAX_UPLOAD_MB * 1024 * 1024
+
 
 
 # ---------------- Middleware (optional debug) ----------------
@@ -528,6 +531,120 @@ async def list_risk(
     ]
 
     return ListRiskPaginationOut(
+        page=page,
+        page_size=page_size,
+        total=total,
+        all_page=all_page,
+        items=items,
+    )
+
+
+@app.post("/upload_excel")
+async def upload_excel(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    
+    if not file.filename.lower().endswith((".xlsx", ".xls")):
+        raise HTTPException(status_code=400, detail="กรุณาอัปโหลดไฟล์ .xlsx หรือ .xls")
+    try:
+        result = await ingest_excel_to_db(
+            engine=db,
+            file=file,
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=f"อ่านไฟล์ไม่สำเร็จ: {e}")
+
+@app.get("/list_incident_statistics", response_model=ListIncidentStatisticsPaginationOut)
+async def list_incident_statistics(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(10, ge=1, le=200),
+    order_by: str = Query("date", description="field ที่จะใช้ sort"),
+    order_type: str = Query("asc", regex="^(asc|desc)$", description="ทิศทาง asc/desc"),
+    province_id: Optional[str] = Query('all', description='เช่น "all" หรือ "50" หรือ "50,51"'),
+    district_id: Optional[str] = Query('all', description='เช่น "all" หรือ "12"'),
+    date_start: Optional[date] = Query(None, description='เช่น "all" หรือ "2024-05-03"'),
+    date_end: Optional[date] = Query(None, description='เช่น "all" หรือ "2024-05-03"'),
+    db: Session = Depends(get_db),
+):
+    
+        
+    
+    conds = []
+    if province_id != 'all' :
+        conds.append(IncidentStatisticsPoint.province_id == int(province_id))
+
+    if district_id != 'all' :
+        conds.append(IncidentStatisticsPoint.district_id == int(district_id))
+
+    if date_start is not None and date_start != 'null':
+        conds.append(IncidentStatisticsPoint.disaster_date >= date_start)
+    
+    if date_end is not None and date_end != 'null':
+        conds.append(IncidentStatisticsPoint.disaster_date <= date_end)
+
+
+    count_stmt = select(func.count(IncidentStatisticsPoint.incident_id)).select_from(IncidentStatisticsPoint)
+    if conds:
+        count_stmt = count_stmt.where(and_(*conds))
+    total = db.execute(count_stmt).scalar_one()
+    all_page = max((total + page_size - 1) // page_size, 1)
+    page = min(page, all_page)
+
+    P = aliased(Province)
+    D = aliased(District)
+
+    sortable_fields = {
+        "disaster_date": IncidentStatisticsPoint.disaster_date,
+        "count_of_disasters": IncidentStatisticsPoint.count_of_disasters,
+        "province_name": P.province_name,
+        "district_name": D.district_name,
+    }
+
+    column = sortable_fields.get(order_by, D.province_id)
+    direction = asc if order_type.lower() == "asc" else desc
+    stmt = (
+        select(
+            IncidentStatisticsPoint.incident_id,
+            IncidentStatisticsPoint.disaster_date,
+            IncidentStatisticsPoint.province_id,
+            IncidentStatisticsPoint.district_id,
+            IncidentStatisticsPoint.count_of_disasters,
+            P.province_name.label("province_name"),
+            P.province_name_en.label("province_name_en"),
+            D.district_name.label("district_name"),
+            D.district_name_en.label("district_name_en"),
+        )
+        .join(P, P.province_id == IncidentStatisticsPoint.province_id, isouter=True)
+        .join(D, D.district_id == IncidentStatisticsPoint.district_id, isouter=True)
+        .order_by(direction(column))
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )
+
+    if conds:
+        stmt = stmt.where(and_(*conds))
+
+    rows = db.execute(stmt).all()
+
+    items = [
+        IncidentStatisticsPointOut(
+            id=r.incident_id,
+            disaster_date=r.disaster_date,
+            count_of_disasters=r.count_of_disasters,
+            province_id=r.province_id,
+            district_id=r.district_id,
+            province_name=r.province_name,
+            province_name_en=r.province_name_en,
+            district_name=r.district_name,
+            district_name_en=r.district_name_en,
+        )
+        for r in rows
+    ]
+    	
+
+    return ListIncidentStatisticsPaginationOut(
         page=page,
         page_size=page_size,
         total=total,

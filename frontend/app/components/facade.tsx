@@ -22,10 +22,10 @@ export default function Facade({ children }: { children: React.ReactNode }) {
 			key : 'landslide-risk',
 			label : 'Landslide risk area',
 		},
-		// { 
-		// 	key : 'statistics-landslide',
-		// 	label : 'Statistics landslide',
-		// },
+		{ 
+			key : 'incident-statistics',
+			label : 'Incident statistics',
+		},
 		{ 
 			key : 'province-district',
 			label : 'Province / District',

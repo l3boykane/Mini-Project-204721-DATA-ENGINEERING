@@ -75,9 +75,23 @@ class RiskPoint(Base):
     district          = relationship("District", backref=backref("risk_points", cascade="all, delete-orphan"), passive_deletes=True)
     province          = relationship("Province", backref=backref("risk_points", cascade="all, delete-orphan"), passive_deletes=True)
 
+class IncidentStatisticsPoint(Base):
+    __tablename__      = "incident_statistics_points"
+    incident_id        = Column(BigInteger, primary_key=True, index=True)
+    disaster_date      = Column(Date, nullable=True) # วันที่ (YYYY-MM-DD) จากแกน time
+    year               = Column(Integer, nullable=True)   
+    province_id        = Column(Integer, ForeignKey("province.province_id", ondelete="CASCADE"), nullable=False, index=True)    
+    district_id        = Column(Integer, ForeignKey("district.district_id", ondelete="CASCADE"), nullable=False, index=True)
+    count_of_disasters = Column(Integer, nullable=True)   
+    district           = relationship("District", backref=backref("incident_statistics_points", cascade="all, delete-orphan"), passive_deletes=True)
+    province           = relationship("Province", backref=backref("incident_statistics_points", cascade="all, delete-orphan"), passive_deletes=True)
+
+
 # ดัชนีที่ช่วย query
 Index("ix_rain_points_date", RainPoint.date)
 Index("ix_rain_points_year", RainPoint.year)
+Index("ix_incident_statistics_points_disaster_date", IncidentStatisticsPoint.disaster_date)
+Index("ix_incident_statistics_points_year", IncidentStatisticsPoint.year)
 Index("ix_province_name", Province.province_name)
 Index("ix_province_name_en", Province.province_name_en)
 Index("ix_district_province", District.province_id)
