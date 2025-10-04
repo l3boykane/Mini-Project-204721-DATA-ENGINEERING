@@ -82,10 +82,10 @@ export default function Home() {
 		return Math.min(100, base);
 	}
 
-	const handleChangeDate = (dates: [Dayjs, Dayjs], dateStrings: [string, string]) => {
-		if(dates) {
+	const handleChangeDate = (date: Dayjs | null, dateString: string) => {
+		if(date) {
 			setFilterOption({
-				date_filter : dateStrings,
+				date_filter : dateString,
 			})
 		} else {
 			setFilterOption({
