@@ -106,8 +106,8 @@ export default function Home() {
 			const dataDate = await resDay.json()
 
 			setDateLimit({
-				max_date: dataDate.max_date,
-				min_date: dataDate.min_date
+				maxDate: dataDate.max_date,
+				minDate: dataDate.min_date
 			})
 
 			setFilterOption({
