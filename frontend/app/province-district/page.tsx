@@ -183,7 +183,7 @@ export default function ProvinceDistrict() {
 	return (
 		<Fragment>
 			<Breadcrumb className="breadcrumb-design" separator={`>`}
-				items={[{ title: 'Home', path: '/', }, { title: 'Province / District' }]}
+				items={[{ title: 'Home', href: '/', }, { title: 'Province / District' }]}
 			/>
 			<div className="block-content">
 				<Row gutter={[16, 16]}>

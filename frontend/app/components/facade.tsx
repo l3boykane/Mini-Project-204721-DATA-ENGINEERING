@@ -3,7 +3,7 @@
 import React, {useEffect, Fragment, useState} from 'react';
 import { Layout, Menu, Typography, Button, Row, Col } from 'antd';
 const {Header, Content, Footer} = Layout;
-import { API_BASE } from '../lib/api';
+import { API_BASE } from '@/lib/api';
 import { LogoutOutlined } from '@ant-design/icons';
 import { useRouter, usePathname} from 'next/navigation';
 import Link from 'next/link';

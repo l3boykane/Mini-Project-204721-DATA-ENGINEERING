@@ -246,7 +246,7 @@ export default function LandSideRisk() {
 	return (
 		<Fragment>
 			<Breadcrumb className="breadcrumb-design" separator={`>`}
-				items={[{ title: 'Home', path: '/', }, { title: 'Landslide risk area' }]}
+				items={[{ title: 'Home', href: '/', }, { title: 'Landslide risk area' }]}
 			/>
 			<div className="block-content">
 				<Row gutter={[16, 16]}>

@@ -116,4 +116,24 @@ class ListIncidentStatisticsPaginationOut(BaseModel):
     all_page: int
     items: List[IncidentStatisticsPointOut]
 
-    
+class DateLimitOut(BaseModel):
+    min_date: dt.date
+    max_date: dt.date
+
+
+
+class GraphPointOut(BaseModel):
+    date: dt.date
+    rain_mm_wmean: float | None = None
+    province_id: int
+    district_id: int
+    province_name: str
+    district_name: str
+    province_name_en: str
+    district_name_en: str
+    risk_level: int
+    count_of_disasters: int
+    class Config:
+        from_attributes = True
+class ListGraphOut(BaseModel):
+    items: List[GraphPointOut]

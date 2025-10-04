@@ -47,3 +47,23 @@ body { margin: 0; }
 .text-right {
     text-align: right;
 }
+
+.position-relative {
+    position: relative;
+}
+
+.textHome {
+    font-size: 20px;
+    padding-left: 45px;
+}
+
+.iconHome {
+    font-size: 32px;
+    color: #1677ff;
+    position: absolute;
+    top: -10px;
+}
+
+.pd-card-0 .ant-card-body {
+    padding: 0;
+}

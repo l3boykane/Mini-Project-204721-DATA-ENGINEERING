@@ -11,7 +11,7 @@ import pandas as pd
 from sqlalchemy import select, func, asc, desc, and_, or_
 from .database import Base, engine, get_db
 from .models import User, UploadRainPoint, RainPoint, Province, District, UploadRisk, RiskPoint, IncidentStatisticsPoint
-from .schemas import UserOut, RegisterIn, LoginIn, ListPaginationOut, ListProvinceDistrictPaginationOut, RainPointOut, ProvinceOut, DistrictOut, ProvinceListOut, DistrictListOut, ProvinceDistrictPointOut, RiskPointOut, ListRiskPaginationOut, IncidentStatisticsPointOut, ListIncidentStatisticsPaginationOut
+from .schemas import UserOut, RegisterIn, LoginIn, ListPaginationOut, ListProvinceDistrictPaginationOut, RainPointOut, ProvinceOut, DistrictOut, ProvinceListOut, DistrictListOut, ProvinceDistrictPointOut, RiskPointOut, ListRiskPaginationOut, IncidentStatisticsPointOut, ListIncidentStatisticsPaginationOut, DateLimitOut, GraphPointOut, ListGraphOut
 from .auth import (
     hash_password, verify_password,
     create_access_token, set_auth_cookie, clear_auth_cookie,
@@ -658,5 +658,75 @@ async def list_incident_statistics(
         page_size=page_size,
         total=total,
         all_page=all_page,
+        items=items,
+    )
+
+@app.get("/get_date_limit", response_model=DateLimitOut)
+async def get_date_limit(
+    db: Session = Depends(get_db)
+):
+    stmt = (
+        select(
+            func.max(RainPoint.date),
+            func.min(RainPoint.date),
+        )
+    )
+
+    result = db.execute(stmt).one()
+    max_date, min_date = result
+    return DateLimitOut(
+        min_date = min_date,
+        max_date = max_date
+    )
+
+@app.get("/list_data_graph", response_model=ListGraphOut)
+async def list_data_graph(
+    db: Session = Depends(get_db),
+    date_filter: Optional[date] = Query(None, description='เช่น "all" หรือ "2024-05-03"'),
+):
+    
+    P = aliased(Province)
+    D = aliased(District)
+    R = aliased(RiskPoint)
+    I = aliased(IncidentStatisticsPoint)
+    
+    stmt = (
+        select(
+            RainPoint.date,
+            RainPoint.rain_mm_wmean,
+            RainPoint.province_id,
+            RainPoint.district_id,
+            P.province_name.label("province_name"),
+            P.province_name_en.label("province_name_en"),
+            D.district_name.label("district_name"),
+            D.district_name_en.label("district_name_en"),
+            R.risk_level.label("risk_level"),
+            func.coalesce(I.count_of_disasters, 0).label("count_of_disasters")
+        )
+        .join(P, P.province_id == RainPoint.province_id, isouter=True)
+        .join(D, D.district_id == RainPoint.district_id, isouter=True)
+        .join(R, R.district_id == RainPoint.district_id, isouter=True)
+        .join(I, (I.district_id == RainPoint.district_id) & (I.disaster_date == date_filter), isouter=True)
+        .where(RainPoint.date == date_filter)
+    )
+
+    rows = db.execute(stmt).all()
+    items = [
+        GraphPointOut(
+            date=r.date,
+            rain_mm_wmean=r.rain_mm_wmean,
+            province_id=r.province_id,
+            district_id=r.district_id,
+            province_name=r.province_name,
+            province_name_en=r.province_name_en,
+            district_name=r.district_name,
+            district_name_en=r.district_name_en,
+            risk_level=r.risk_level,
+            count_of_disasters=r.count_of_disasters,
+        )
+        for r in rows
+    ]
+
+    return ListGraphOut(
         items=items,
     )
