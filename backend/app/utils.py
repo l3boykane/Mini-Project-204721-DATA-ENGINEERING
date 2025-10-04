@@ -197,6 +197,15 @@ def init_data (engine, shp_path: str):
 
     filtered_df = df[df['ADM1_EN'].isin(NORTH_PROVS_EN_LIST)]
 
+
+    if not os.path.exists('/data/storage/admin/north_provinces_districts.geojson'):
+        gdftofile = gdf[gdf["ADM1_EN"].isin(NORTH_PROVS_EN_LIST)]
+        gdftofile["ADM1_EN"] = gdftofile["ADM1_EN"].apply(clean_text)
+        gdftofile["ADM1_TH"] = gdftofile["ADM1_TH"].apply(clean_text)
+        gdftofile["ADM2_EN"] = gdftofile["ADM2_EN"].apply(clean_text)
+        gdftofile["ADM2_TH"] = gdftofile["ADM2_TH"].apply(clean_text)
+        gdftofile.to_file("/data/storage/admin/north_provinces_districts.geojson", driver="GeoJSON")
+
     for _, row in filtered_df.iterrows():
         prov_en = clean_text(row['ADM1_EN'])
         prov_th = clean_text(row['ADM1_TH'])
