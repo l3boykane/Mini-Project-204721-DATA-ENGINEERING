@@ -8,6 +8,8 @@ RUN npm ci || npm install
 # คัดลอกซอร์สโค้ดที่เหลือ
 COPY . .
 
+RUN rm -rf .next
+
 # Build
 RUN npm run build
 
