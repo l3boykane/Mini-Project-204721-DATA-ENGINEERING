@@ -225,9 +225,9 @@ export default function Home() {
 								color: '#333'
 							},
 							pieces: [
-								{ value: 3, label: 'ความเสี่ยงสูง', color: '#ad2029' },
-								{ value: 2, label: 'ความเสี่ยงปานกลาง', color: '#c7982c' },
-								{ value: 1, label: 'ความเสี่ยงต่ำ', color: '#0a7f61' }
+								{ value: 3, label: 'ความเสี่ยงสูง (High risk)', color: '#ad2029' },
+								{ value: 2, label: 'ความเสี่ยงปานกลาง (Medium risk)', color: '#c7982c' },
+								{ value: 1, label: 'ความเสี่ยงต่ำ (Low risk)', color: '#0a7f61' }
 							],
 							selectedMode: false,
 							showLabel: true,
