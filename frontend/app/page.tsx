@@ -94,6 +94,14 @@ export default function Home() {
 		}
 	}
 
+	const formatNumber = (num:number) => {
+		if (Number.isInteger(num)) {
+			return num;
+		} else {
+			return Number(num.toFixed(2));
+		}
+	}
+
 	useEffect(() => {
 		async function fetchDataLimitDate(init: RequestInit = {}) {
 			const resDay = await fetch(`${API_BASE}/get_date_limit`, { 
@@ -152,7 +160,9 @@ export default function Home() {
 						
 						const dataGraph = obj[district_en + '_' + province_en];
 
-						const dataEstimateProbability =  estimateProbability(dataGraph);
+						let dataEstimateProbability =  estimateProbability(dataGraph);
+						dataEstimateProbability = formatNumber(dataEstimateProbability);
+
 						// console.log('dataEstimateProbability', dataEstimateProbability);
 						let colorArea = '#0a7f61';
 						if(dataEstimateProbability >= 75) {
@@ -163,7 +173,7 @@ export default function Home() {
 						p.DIST_KEY = 'อำเภอ : ' + dataGraph.district_name + ' จังหวัด : ' + dataGraph.province_name;
 						dataChart.push({
 							name: 'อำเภอ : ' + dataGraph.district_name + ' จังหวัด : ' + dataGraph.province_name, 
-							value: dataGraph.dataEstimateProbability,
+							value: dataEstimateProbability,
 							rain_mm_wmean: dataGraph.rain_mm_wmean,
 							province_name: dataGraph.province_name,
 							province_name_en: dataGraph.province_name_en,
