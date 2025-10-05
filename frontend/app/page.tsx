@@ -160,20 +160,23 @@ export default function Home() {
 						
 						const dataGraph = obj[district_en + '_' + province_en];
 
+						dataGraph.rain_mm_wmean = formatNumber(dataGraph.rain_mm_wmean);
+
 						let dataEstimateProbability =  estimateProbability(dataGraph);
 						dataEstimateProbability = formatNumber(dataEstimateProbability);
 
-						// console.log('dataEstimateProbability', dataEstimateProbability);
 						let colorArea = '#0a7f61';
 						if(dataEstimateProbability >= 75) {
 							colorArea = '#ad2029'
 						} else if(dataEstimateProbability >= 50) {
 							colorArea = '#c7982c'
 						}
+
+						// console.log('colorArea', colorArea);
 						p.DIST_KEY = 'อำเภอ : ' + dataGraph.district_name + ' จังหวัด : ' + dataGraph.province_name;
 						dataChart.push({
 							name: 'อำเภอ : ' + dataGraph.district_name + ' จังหวัด : ' + dataGraph.province_name, 
-							value: dataEstimateProbability,
+							dataEstimateProbability: dataEstimateProbability,
 							rain_mm_wmean: dataGraph.rain_mm_wmean,
 							province_name: dataGraph.province_name,
 							province_name_en: dataGraph.province_name_en,
@@ -201,6 +204,7 @@ export default function Home() {
 							// 	color: '#ffffff'
 							// }
 						})
+
 						
 					});
 
@@ -217,7 +221,7 @@ export default function Home() {
 									<b>ปริมาณฝน (mm): ${p.data.rain_mm_wmean ?? 0}</b><br />
 									<b>ความเสี่ยงของพื้นที่: ${(p.data.risk_level == 1 ? 'ความเสี่ยงต่ำ (Low risk)' : (p.data.risk_level == 2 ? 'ความเสี่ยงปานกลาง (Medium risk)' : 'ความเสี่ยงสูง (High risk)'))}</b><br/>
 									<b>จำนวนครั้งที่เกิดภัยพิบัติ: ${p.data.count_of_disasters ?? 0} ครั้ง</b><br />
-									<b>ความเสี่ยง: ${p.value ?? 0}%</b><br />
+									<b>ความเสี่ยง: ${p.data.dataEstimateProbability ?? 0}%</b><br />
 									</div>
 								`;
 							}
