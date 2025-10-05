@@ -1,7 +1,7 @@
-# 🌍 Landslide Data Ingestion Platform
+# 🌍 Landslides in the northern region Platform
 
-ระบบทดลอง **อัปโหลด วิเคราะห์ และจัดเก็บข้อมูลดินถล่ม**  
-- Backend: [FastAPI](https://fastapi.tiangolo.com/) (JWT cookie auth, Upload `.nc`, `.csv/.xlsx`, `.dbf`)  
+ระบบทดลอง **อัปโหลด วิเคราะห์ และจัดเก็บข้อมูลดินถล่มในภาคเหนือ**  
+- Backend: [FastAPI](https://fastapi.tiangolo.com/) (JWT cookie auth, Upload `.nc`, `.xls/.xlsx`, `.dbf`)  
 - Frontend: [Next.js](https://nextjs.org/) + [Ant Design](https://ant.design/)  
 - Database: PostgreSQL  
 - Database UI: Adminer  
@@ -14,12 +14,21 @@
 .
 ├── backend/        # FastAPI app (Python)
 │   ├── app/
+│   ├── storage/
+│   ├── Dockerfile
 │   └── requirements.txt
 ├── frontend/       # Next.js app (TypeScript + Antd)
 │   ├── app/
-│   └── package.json
+│   ├── public/
+│   ├── styles/
+│   ├── Dockerfile
+│   ├── next-env.d.ts
+│   ├── next.config.js
+│   ├── package.json
+│   └── tsconfig.json
 ├── docker-compose.yaml
 ├── .env
+├── .gitignore
 └── README.md
 ```
 
@@ -36,7 +45,7 @@
 
 ### 1. Build & run
 ```bash
-docker compose build
+docker compose build --no-cache
 docker compose up -d
 ```
 
