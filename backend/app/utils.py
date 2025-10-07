@@ -71,8 +71,10 @@ def ingest_nc_north_adm2_to_db(
     ds_th = ds.sel(latitude=slice(lat_min, lat_max), longitude=slice(lon_min, lon_max))
     da = ds_th["precip"]
 
+    da_pos = da.where(da.notnull() & (da > 0), drop=True)
+
     # DataFrame point-level (แค่ใช้คำนวณ aggregate)
-    df_values = da.to_dataframe(name="precip").reset_index()
+    df_values = da_pos.to_dataframe(name="precip").reset_index()
 
     # ---------- 3) โหลด shapefile ADM2 และกรองเฉพาะภาคเหนือ ----------
     adm2 = gpd.read_file(adm2_shp_path).to_crs("EPSG:4326")
@@ -100,7 +102,8 @@ def ingest_nc_north_adm2_to_db(
 
     # weighted mean (หลีกเลี่ยง FutureWarning)
     daily_wmean = (
-        gdf_joined.groupby(["time","province","district"], observed=True)
+        gdf_joined[gdf_joined["precip"].notna() & (gdf_joined["precip"] > 0)]
+        .groupby(["time","province","district"], observed=True)
         .apply(lambda df: np.average(df["precip"].to_numpy(),
                                      weights=df["weight"].to_numpy()))
         .rename("rain_mm_wmean").reset_index()
@@ -117,7 +120,8 @@ def ingest_nc_north_adm2_to_db(
         gdf_joined["precip"] * gdf_joined["cell_area_km2"] * 1000 / 1e6
     )
     daily_sum = (
-        gdf_joined.groupby(["time","province","district"], observed=True)["rainfall_mm"]
+        gdf_joined[gdf_joined["rainfall_mm"].notna() & (gdf_joined["rainfall_mm"] > 0)]
+        .groupby(["time","province","district"], observed=True)["rainfall_mm"]
         .sum().reset_index()
     )
 

@@ -152,7 +152,7 @@ async def upload_netcdf(
         logger.exception("ingest failed: %s", e)
         raise HTTPException(400, f"Ingest failed: {e}")
 
-    os.remove(raw_path)
+    # os.remove(raw_path)
     return {"rows_inserted": total}
 
 # @app.get("/test_upload")
@@ -458,7 +458,7 @@ async def upload_dbf(
         logger.exception("ingest failed: %s", e)
         raise HTTPException(400, f"Ingest failed: {e}")
 
-    os.remove(raw_path)
+    # os.remove(raw_path)
     return {"rows_inserted": total}
 
 @app.get("/list_risk", response_model=ListRiskPaginationOut)
